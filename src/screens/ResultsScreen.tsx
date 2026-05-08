@@ -1,0 +1,289 @@
+import React from 'react';
+import {
+  View, Text, StyleSheet, ScrollView, TouchableOpacity,
+  StatusBar, Dimensions, Alert,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { Colors } from '../theme/colors';
+import { Typography, BorderRadius } from '../theme/typography';
+import { useApp } from '../context/AppContext';
+import { RankedDish, Verdict } from '../types';
+
+const { width } = Dimensions.get('window');
+
+const VERDICT_CONFIG: Record<Verdict, { label: string; emoji: string; color: string; bg: string }> = {
+  top_pick: { label: 'Top Pick', emoji: '⭐', color: Colors.topPick, bg: 'rgba(0,230,118,0.1)' },
+  good: { label: 'Good Fit', emoji: '👍', color: Colors.goodFit, bg: 'rgba(100,181,246,0.1)' },
+  skip: { label: 'Skip', emoji: '⛔', color: Colors.skip, bg: 'rgba(255,82,82,0.1)' },
+};
+
+function MacroBar({ label, value, color, unit }: { label: string; value: number; color: string; unit: string }) {
+  const maxWidth = 100;
+  const barWidth = Math.min(maxWidth, (value / 600) * maxWidth);
+  return (
+    <View style={styles.macroBarRow}>
+      <Text style={[styles.macroBarLabel, { color }]}>{label}</Text>
+      <View style={styles.macroBarTrack}>
+        <View style={[styles.macroBarFill, { width: barWidth, backgroundColor: color }]} />
+      </View>
+      <Text style={styles.macroBarValue}>{value}{unit}</Text>
+    </View>
+  );
+}
+
+function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => void; isCheatDay: boolean }) {
+  const verdict = VERDICT_CONFIG[dish.verdict] || VERDICT_CONFIG.good;
+  const isTopPick = dish.verdict === 'top_pick';
+
+  return (
+    <View style={[
+      styles.dishCard,
+      isTopPick && {
+        borderColor: isCheatDay ? Colors.amberBorder : Colors.accentBorder,
+        borderWidth: 1.5,
+      },
+    ]}>
+      {/* Header */}
+      <View style={styles.dishHeader}>
+        <View style={styles.dishNameRow}>
+          <Text style={styles.dishName}>{dish.name}</Text>
+          <View style={[styles.scoreBadge, { backgroundColor: verdict.bg }]}>
+            <Text style={[styles.scoreText, { color: verdict.color }]}>{dish.score}</Text>
+          </View>
+        </View>
+        <View style={[styles.verdictBadge, { backgroundColor: verdict.bg }]}>
+          <Text style={{ fontSize: 12 }}>{verdict.emoji}</Text>
+          <Text style={[styles.verdictText, { color: verdict.color }]}>{verdict.label}</Text>
+        </View>
+      </View>
+
+      {/* Macro Bars */}
+      <View style={styles.macroBars}>
+        <MacroBar label="Cal" value={dish.macros.calories} color={Colors.macroCalories} unit="" />
+        <MacroBar label="Pro" value={dish.macros.protein} color={Colors.macroProtein} unit="g" />
+        <MacroBar label="Crb" value={dish.macros.carbs} color={Colors.macroCarbs} unit="g" />
+        <MacroBar label="Fat" value={dish.macros.fat} color={Colors.macroFat} unit="g" />
+      </View>
+
+      {/* AI Reason */}
+      <View style={styles.reasonRow}>
+        <Ionicons name="bulb" size={14} color={Colors.accent} />
+        <Text style={styles.reasonText}>{dish.reason}</Text>
+      </View>
+
+      {/* Customization Tip */}
+      {dish.customizationTip && (
+        <View style={styles.tipRow}>
+          <Ionicons name="create" size={14} color={Colors.amber} />
+          <Text style={styles.tipText}>{dish.customizationTip}</Text>
+        </View>
+      )}
+
+      {/* Match Type Badge */}
+      <View style={styles.matchRow}>
+        <View style={styles.matchBadge}>
+          <Text style={styles.matchText}>
+            {dish.matchType === 'exact' ? '✅ DB Match' :
+             dish.matchType === 'partial' ? '🔍 Partial Match' :
+             dish.matchType === 'keyword' ? '🔑 Keyword Match' : '🤖 AI Estimated'}
+          </Text>
+        </View>
+      </View>
+
+      {/* Log Button */}
+      <TouchableOpacity style={styles.logBtn} onPress={onLog} activeOpacity={0.8}>
+        <Ionicons name="add-circle" size={18} color={Colors.bg} />
+        <Text style={styles.logBtnText}>Log This Meal</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+export default function ResultsScreen({ navigation }: any) {
+  const { scannedDishes, profile, budget, addMeal, trackDish, restaurantName } = useApp();
+  const isCheatDay = profile.cheatDayEnabled;
+
+  const handleLog = async (dish: RankedDish) => {
+    const meal = {
+      id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
+      name: dish.name,
+      macros: dish.macros,
+      timestamp: Date.now(),
+      date: new Date().toISOString().split('T')[0],
+      restaurantName: restaurantName || undefined,
+    };
+    await addMeal(meal);
+    await trackDish(dish.name, true);
+    Alert.alert('Logged!', `${dish.name} added to today's meals.`);
+  };
+
+  const topPicks = scannedDishes.filter(d => d.verdict === 'top_pick');
+  const goodFits = scannedDishes.filter(d => d.verdict === 'good');
+  const skips = scannedDishes.filter(d => d.verdict === 'skip');
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.title}>
+              {isCheatDay ? '🍕 Damage Control' : '🎯 Your Picks'}
+            </Text>
+            <Text style={styles.subtitle}>
+              {scannedDishes.length} dishes analyzed · {budget.calories} kcal remaining
+            </Text>
+          </View>
+        </View>
+
+        {/* Budget Summary */}
+        <View style={styles.budgetRow}>
+          <View style={[styles.budgetChip, { borderColor: `${Colors.macroCalories}30` }]}>
+            <Text style={[styles.budgetValue, { color: Colors.macroCalories }]}>{budget.calories}</Text>
+            <Text style={styles.budgetLabel}>kcal left</Text>
+          </View>
+          <View style={[styles.budgetChip, { borderColor: `${Colors.macroProtein}30` }]}>
+            <Text style={[styles.budgetValue, { color: Colors.macroProtein }]}>{budget.protein}g</Text>
+            <Text style={styles.budgetLabel}>protein left</Text>
+          </View>
+          <View style={[styles.budgetChip, { borderColor: `${Colors.macroCarbs}30` }]}>
+            <Text style={[styles.budgetValue, { color: Colors.macroCarbs }]}>{budget.carbs}g</Text>
+            <Text style={styles.budgetLabel}>carbs left</Text>
+          </View>
+        </View>
+
+        {/* Top Picks */}
+        {topPicks.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { color: Colors.topPick }]}>
+              ⭐ TOP PICKS ({topPicks.length})
+            </Text>
+            {topPicks.map((dish, i) => (
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+            ))}
+          </>
+        )}
+
+        {/* Good Fits */}
+        {goodFits.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { color: Colors.goodFit }]}>
+              👍 GOOD OPTIONS ({goodFits.length})
+            </Text>
+            {goodFits.map((dish, i) => (
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+            ))}
+          </>
+        )}
+
+        {/* Skips */}
+        {skips.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { color: Colors.skip }]}>
+              ⛔ SKIP ({skips.length})
+            </Text>
+            {skips.map((dish, i) => (
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+            ))}
+          </>
+        )}
+
+        {/* Chat CTA */}
+        <TouchableOpacity
+          style={styles.chatCta}
+          onPress={() => navigation.navigate('Chat')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="chatbubbles" size={22} color={Colors.accent} />
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.chatCtaTitle}>Ask about this menu</Text>
+            <Text style={styles.chatCtaSubtext}>
+              "Which has the most protein?" "Can I eat two dishes?"
+            </Text>
+          </View>
+          <Ionicons name="arrow-forward" size={20} color={Colors.textMuted} />
+        </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: Colors.bg },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 60 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
+  backBtn: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: Colors.bgCard, alignItems: 'center', justifyContent: 'center',
+  },
+  title: { ...Typography.h2, color: Colors.textPrimary },
+  subtitle: { ...Typography.bodySm, color: Colors.textSecondary, marginTop: 2 },
+  budgetRow: { flexDirection: 'row', gap: 8, marginBottom: 20 },
+  budgetChip: {
+    flex: 1, backgroundColor: Colors.bgCard, borderRadius: BorderRadius.md,
+    borderWidth: 1, padding: 10, alignItems: 'center',
+  },
+  budgetValue: { ...Typography.numberSm },
+  budgetLabel: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  sectionLabel: { ...Typography.label, marginTop: 16, marginBottom: 10 },
+  dishCard: {
+    backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.border, padding: 16, marginBottom: 12,
+  },
+  dishHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12,
+  },
+  dishNameRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dishName: { ...Typography.bodyMedium, color: Colors.textPrimary, flex: 1 },
+  scoreBadge: {
+    paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.sm,
+  },
+  scoreText: { ...Typography.caption, fontWeight: '700' },
+  verdictBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: BorderRadius.full,
+  },
+  verdictText: { ...Typography.caption, fontWeight: '600' },
+  macroBars: { gap: 6, marginBottom: 12 },
+  macroBarRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  macroBarLabel: { ...Typography.caption, width: 28 },
+  macroBarTrack: {
+    flex: 1, height: 6, borderRadius: 3, backgroundColor: Colors.bgInput,
+  },
+  macroBarFill: { height: 6, borderRadius: 3 },
+  macroBarValue: { ...Typography.caption, color: Colors.textSecondary, width: 42, textAlign: 'right' },
+  reasonRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: Colors.accentBg, borderRadius: BorderRadius.sm, padding: 10, marginBottom: 6,
+  },
+  reasonText: { ...Typography.bodySm, color: Colors.textSecondary, flex: 1 },
+  tipRow: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: Colors.amberBg, borderRadius: BorderRadius.sm, padding: 10, marginBottom: 10,
+  },
+  tipText: { ...Typography.bodySm, color: Colors.amberLight, flex: 1 },
+  matchRow: { marginBottom: 10 },
+  matchBadge: {
+    backgroundColor: Colors.bgInput, borderRadius: BorderRadius.full,
+    paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start',
+  },
+  matchText: { ...Typography.caption, color: Colors.textMuted },
+  logBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: Colors.accent, borderRadius: BorderRadius.md, paddingVertical: 12,
+  },
+  logBtnText: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '700' },
+  chatCta: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg,
+    borderWidth: 1, borderColor: Colors.accentBorder, padding: 16, marginTop: 24,
+  },
+  chatCtaTitle: { ...Typography.bodyMedium, color: Colors.textPrimary },
+  chatCtaSubtext: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+});
