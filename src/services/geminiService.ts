@@ -6,7 +6,11 @@ const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-export async function parseMenuImage(imageBase64: string): Promise<ParsedDish[]> {
+export async function parseMenuImage(imageBase64: string, scanType: 'menu' | 'dish' = 'menu'): Promise<ParsedDish[]> {
+  const promptText = scanType === 'dish'
+    ? `You are an expert food analyzer. Look at this photo of food and identify what dish it is. Provide its name, a brief description, and estimated nutritional macros. Return ONLY a valid JSON array with no markdown formatting, no code fences: [{"name": "dish name", "description": "brief description", "macros": {"calories": 0, "protein": 0, "carbs": 0, "fat": 0, "fiber": 0}}]. If multiple dishes are visible, list them all.`
+    : `You are a menu parser. Look at this restaurant menu image and extract every dish name and its description. Ignore prices, section headers, and non-food text. Return ONLY a valid JSON array with no markdown formatting, no code fences: [{"name": "dish name", "description": "brief description"}]. If you cannot read the menu clearly, do your best to extract what you can.`;
+
   const payload = {
     model: 'meta-llama/llama-4-scout-17b-16e-instruct',
     messages: [
@@ -15,7 +19,7 @@ export async function parseMenuImage(imageBase64: string): Promise<ParsedDish[]>
         content: [
           {
             type: 'text',
-            text: `You are a menu parser. Look at this restaurant menu image and extract every dish name and its description. Ignore prices, section headers, and non-food text. Return ONLY a valid JSON array with no markdown formatting, no code fences: [{"name": "dish name", "description": "brief description"}]. If you cannot read the menu clearly, do your best to extract what you can.`,
+            text: promptText,
           },
           {
             type: 'image_url',

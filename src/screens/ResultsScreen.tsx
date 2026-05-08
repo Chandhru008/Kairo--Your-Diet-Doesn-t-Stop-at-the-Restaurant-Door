@@ -63,11 +63,12 @@ function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => 
         <MacroBar label="Pro" value={dish.macros.protein} color={Colors.macroProtein} unit="g" />
         <MacroBar label="Crb" value={dish.macros.carbs} color={Colors.macroCarbs} unit="g" />
         <MacroBar label="Fat" value={dish.macros.fat} color={Colors.macroFat} unit="g" />
+        <MacroBar label="Fib" value={dish.macros.fiber || 0} color={Colors.goodFit} unit="g" />
       </View>
 
       {/* AI Reason */}
       <View style={styles.reasonRow}>
-        <Ionicons name="bulb" size={14} color={Colors.accent} />
+        <Text style={styles.reasonTitle}>💡 Why this was selected:</Text>
         <Text style={styles.reasonText}>{dish.reason}</Text>
       </View>
 
@@ -76,6 +77,19 @@ function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => 
         <View style={styles.tipRow}>
           <Ionicons name="create" size={14} color={Colors.amber} />
           <Text style={styles.tipText}>{dish.customizationTip}</Text>
+        </View>
+      )}
+
+      {/* Warnings (Things to Avoid) */}
+      {dish.warnings && dish.warnings.length > 0 && (
+        <View style={styles.warningContainer}>
+          <Text style={styles.warningTitle}>⚠️ Things to watch out for:</Text>
+          {dish.warnings.map((w, idx) => (
+            <View key={idx} style={styles.warningItem}>
+              <Ionicons name="alert-circle" size={12} color={Colors.skip} />
+              <Text style={styles.warningText}>{w}</Text>
+            </View>
+          ))}
         </View>
       )}
 
@@ -117,9 +131,10 @@ export default function ResultsScreen({ navigation }: any) {
     Alert.alert('Logged!', `${dish.name} added to today's meals.`);
   };
 
-  const topPicks = scannedDishes.filter(d => d.verdict === 'top_pick');
-  const goodFits = scannedDishes.filter(d => d.verdict === 'good');
-  const skips = scannedDishes.filter(d => d.verdict === 'skip');
+  const absoluteTopPick = scannedDishes.length > 0 && scannedDishes[0].score >= 40 ? scannedDishes[0] : null;
+  const topPicks = scannedDishes.filter(d => d.verdict === 'top_pick' && d.name !== absoluteTopPick?.name);
+  const goodFits = scannedDishes.filter(d => d.verdict === 'good' && d.name !== absoluteTopPick?.name);
+  const skips = scannedDishes.filter(d => d.verdict === 'skip' && d.name !== absoluteTopPick?.name);
 
   return (
     <View style={styles.container}>
@@ -156,11 +171,58 @@ export default function ResultsScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Absolute Top Pick Hero Card */}
+        {absoluteTopPick && (
+          <View style={styles.heroCard}>
+            <View style={styles.heroHeader}>
+              <Text style={styles.heroTrophy}>🏆</Text>
+              <Text style={styles.heroTitle}>THE PERFECT CHOICE</Text>
+            </View>
+            <Text style={styles.heroDishName}>{absoluteTopPick.name}</Text>
+            
+            <View style={styles.heroMacroRow}>
+              <View style={styles.heroMacroItem}>
+                <Text style={styles.heroMacroValue}>{absoluteTopPick.macros.calories}</Text>
+                <Text style={styles.heroMacroLabel}>kcal</Text>
+              </View>
+              <View style={styles.heroMacroItem}>
+                <Text style={styles.heroMacroValue}>{absoluteTopPick.macros.protein}g</Text>
+                <Text style={styles.heroMacroLabel}>Protein</Text>
+              </View>
+              <View style={styles.heroMacroItem}>
+                <Text style={styles.heroMacroValue}>{absoluteTopPick.macros.carbs}g</Text>
+                <Text style={styles.heroMacroLabel}>Carbs</Text>
+              </View>
+              <View style={styles.heroMacroItem}>
+                <Text style={styles.heroMacroValue}>{absoluteTopPick.macros.fat}g</Text>
+                <Text style={styles.heroMacroLabel}>Fat</Text>
+              </View>
+              <View style={styles.heroMacroItem}>
+                <Text style={styles.heroMacroValue}>{absoluteTopPick.macros.fiber || 0}g</Text>
+                <Text style={styles.heroMacroLabel}>Fiber</Text>
+              </View>
+            </View>
+
+            <View style={styles.heroExplainBox}>
+              <Text style={styles.heroExplainTitle}>💡 Why you should have this:</Text>
+              <Text style={styles.heroExplainText}>{absoluteTopPick.reason}</Text>
+              {absoluteTopPick.customizationTip && (
+                <Text style={styles.heroExplainTip}>Chef's tip: {absoluteTopPick.customizationTip}</Text>
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.heroLogBtn} onPress={() => handleLog(absoluteTopPick)} activeOpacity={0.8}>
+              <Ionicons name="add-circle" size={20} color={Colors.bg} />
+              <Text style={styles.heroLogBtnText}>Log This Meal</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Top Picks */}
         {topPicks.length > 0 && (
           <>
             <Text style={[styles.sectionLabel, { color: Colors.topPick }]}>
-              ⭐ TOP PICKS ({topPicks.length})
+              ⭐ OTHER TOP PICKS ({topPicks.length})
             </Text>
             {topPicks.map((dish, i) => (
               <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
@@ -232,6 +294,32 @@ const styles = StyleSheet.create({
   budgetValue: { ...Typography.numberSm },
   budgetLabel: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
   sectionLabel: { ...Typography.label, marginTop: 16, marginBottom: 10 },
+  
+  // Hero Card Styles
+  heroCard: {
+    backgroundColor: 'rgba(0, 230, 118, 0.08)',
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    borderColor: Colors.topPick,
+    padding: 20,
+    marginBottom: 24,
+  },
+  heroHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  heroTrophy: { fontSize: 24 },
+  heroTitle: { ...Typography.label, color: Colors.topPick, letterSpacing: 1.5 },
+  heroDishName: { ...Typography.h2, color: Colors.textPrimary, marginBottom: 16 },
+  heroMacroRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-around', gap: 8, backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: BorderRadius.md, padding: 12, marginBottom: 16 },
+  heroMacroItem: { alignItems: 'center' },
+  heroMacroValue: { ...Typography.bodyMedium, color: Colors.textPrimary, fontWeight: '700' },
+  heroMacroLabel: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  heroExplainBox: { backgroundColor: 'rgba(0,0,0,0.3)', padding: 16, borderRadius: BorderRadius.lg, marginBottom: 20 },
+  heroExplainTitle: { ...Typography.bodyMedium, color: Colors.topPick, fontWeight: '700', marginBottom: 6 },
+  heroExplainText: { ...Typography.body, color: Colors.textSecondary, lineHeight: 22 },
+  heroExplainTip: { ...Typography.caption, color: Colors.amber, marginTop: 8, fontStyle: 'italic' },
+  heroLogBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.topPick, paddingVertical: 14, borderRadius: BorderRadius.lg },
+  heroLogBtnText: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '800' },
+
+  // Standard Dish Card Styles
   dishCard: {
     backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg,
     borderWidth: 1, borderColor: Colors.border, padding: 16, marginBottom: 12,
@@ -259,10 +347,10 @@ const styles = StyleSheet.create({
   macroBarFill: { height: 6, borderRadius: 3 },
   macroBarValue: { ...Typography.caption, color: Colors.textSecondary, width: 42, textAlign: 'right' },
   reasonRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
     backgroundColor: Colors.accentBg, borderRadius: BorderRadius.sm, padding: 10, marginBottom: 6,
   },
-  reasonText: { ...Typography.bodySm, color: Colors.textSecondary, flex: 1 },
+  reasonTitle: { ...Typography.caption, color: Colors.accent, fontWeight: '700', marginBottom: 4 },
+  reasonText: { ...Typography.bodySm, color: Colors.textSecondary },
   tipRow: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 6,
     backgroundColor: Colors.amberBg, borderRadius: BorderRadius.sm, padding: 10, marginBottom: 10,
@@ -286,4 +374,10 @@ const styles = StyleSheet.create({
   },
   chatCtaTitle: { ...Typography.bodyMedium, color: Colors.textPrimary },
   chatCtaSubtext: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  warningContainer: {
+    backgroundColor: 'rgba(255,82,82,0.05)', borderRadius: BorderRadius.sm, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(255,82,82,0.1)'
+  },
+  warningTitle: { ...Typography.caption, color: Colors.skip, fontWeight: '700', marginBottom: 6 },
+  warningItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 4 },
+  warningText: { ...Typography.caption, color: Colors.textSecondary, flex: 1 },
 });

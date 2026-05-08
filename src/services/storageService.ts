@@ -9,9 +9,11 @@ const KEYS = {
 
 const DEFAULT_PROFILE: UserProfile = {
   goal: 'maintenance',
+  dietType: 'anything',
   dailyCalories: 2000,
   proteinTarget: 120,
   carbLimit: 250,
+  fiberLimit: 30,
   restrictions: [],
   cheatDayEnabled: false,
   onboardingComplete: false,
@@ -105,4 +107,45 @@ export async function trackInteraction(dishName: string, accepted: boolean): Pro
     prefs.preferenceNote = notes.join(' ');
   }
   await savePreferences(prefs);
+}
+
+export async function seedMockHistory(): Promise<void> {
+  const existing = await getAllMeals();
+  if (existing.length > 5) return; // Already seeded
+
+  const mockMeals: MealEntry[] = [];
+  const dishNames = ['Butter Chicken', 'Palak Paneer', 'Masala Dosa', 'Chicken Biryani', 'Chole Bhature', 'Dal Makhani', 'Tandoori Chicken', 'Aloo Gobi'];
+  
+  const today = new Date();
+  
+  // Generate 30 days of history
+  for (let i = 0; i < 30; i++) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    
+    // 1 to 3 meals a day
+    const mealsToday = Math.floor(Math.random() * 3) + 1;
+    for (let j = 0; j < mealsToday; j++) {
+      const dish = dishNames[Math.floor(Math.random() * dishNames.length)];
+      const isHealthy = Math.random() > 0.5;
+      
+      mockMeals.push({
+        id: `mock_${i}_${j}`,
+        name: dish,
+        macros: {
+          calories: isHealthy ? Math.floor(Math.random() * 300) + 200 : Math.floor(Math.random() * 600) + 400,
+          protein: Math.floor(Math.random() * 30) + 10,
+          carbs: Math.floor(Math.random() * 60) + 20,
+          fat: Math.floor(Math.random() * 40) + 10,
+          fiber: Math.floor(Math.random() * 10) + 2,
+        },
+        date: dateStr,
+        timestamp: date.getTime(),
+        restaurantName: 'Mock Restaurant',
+      });
+    }
+  }
+  
+  await AsyncStorage.setItem(KEYS.MEALS, JSON.stringify([...existing, ...mockMeals]));
 }

@@ -19,10 +19,11 @@ const { width, height } = Dimensions.get('window');
 
 type Stage = 'camera' | 'scanning' | 'select' | 'manual';
 
-export default function ScannerScreen({ navigation }: any) {
+export default function ScannerScreen({ navigation, route }: any) {
   const { profile, budget, setScannedDishes, setDishesWithMacros } = useApp();
   const [permission, requestPermission] = useCameraPermissions();
   const [stage, setStage] = useState<Stage>('camera');
+  const [scanType, setScanType] = useState<'menu' | 'dish'>(route?.params?.scanType || 'menu');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('');
   const [parsedDishes, setParsedDishes] = useState<DishWithMacros[]>([]);
@@ -43,8 +44,8 @@ export default function ScannerScreen({ navigation }: any) {
       });
 
       // Send to Gemini to extract dish names
-      setStatusText('Gemini is reading the menu...');
-      const dishes: ParsedDish[] = await parseMenuImage(base64);
+      setStatusText(scanType === 'menu' ? 'Reading the menu...' : 'Identifying the dish...');
+      const dishes: ParsedDish[] = await parseMenuImage(base64, scanType);
 
       if (dishes.length === 0) {
         Alert.alert('No dishes found', 'Could not read the menu. Try a clearer photo or select dishes manually.');
@@ -66,6 +67,7 @@ export default function ScannerScreen({ navigation }: any) {
               protein: match.entry.protein,
               carbs: match.entry.carbs,
               fat: match.entry.fat,
+              fiber: match.entry.fiber,
             },
             matchType: match.matchType,
           };
@@ -74,13 +76,13 @@ export default function ScannerScreen({ navigation }: any) {
         return {
           name: dish.name,
           description: dish.description,
-          macros: { calories: 200, protein: 8, carbs: 20, fat: 8 },
+          macros: { calories: 200, protein: 8, carbs: 20, fat: 8, fiber: 3 },
           matchType: 'ai_estimated' as const,
         };
       });
 
       // Rank locally (no Claude needed)
-      const ranked = rankDishesLocally(withMacros, budget, profile.goal, profile.cheatDayEnabled);
+      const ranked = rankDishesLocally(withMacros, budget, profile);
 
       setDishesWithMacros(withMacros);
       setScannedDishes(ranked);
@@ -155,12 +157,12 @@ export default function ScannerScreen({ navigation }: any) {
         withMacros.push({
           name: entry.name,
           description: entry.keywords.join(', '),
-          macros: { calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat },
+          macros: { calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat, fiber: entry.fiber },
           matchType: 'exact',
         });
       }
     }
-    const ranked = rankDishesLocally(withMacros, budget, profile.goal, profile.cheatDayEnabled);
+    const ranked = rankDishesLocally(withMacros, budget, profile);
     setDishesWithMacros(withMacros);
     setScannedDishes(ranked);
     navigation.navigate('Results');
@@ -297,7 +299,24 @@ export default function ScannerScreen({ navigation }: any) {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.camBtn}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
-          <Text style={styles.camTitle}>Scan Menu</Text>
+          
+          <View style={styles.toggleContainer}>
+            <TouchableOpacity 
+              style={[styles.toggleBtn, scanType === 'menu' && styles.toggleBtnActive]} 
+              onPress={() => setScanType('menu')}
+            >
+              <Ionicons name="document-text" size={14} color={scanType === 'menu' ? Colors.bg : '#fff'} />
+              <Text style={[styles.toggleText, scanType === 'menu' && styles.toggleTextActive]}>Menu</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.toggleBtn, scanType === 'dish' && styles.toggleBtnActive]} 
+              onPress={() => setScanType('dish')}
+            >
+              <Ionicons name="restaurant" size={14} color={scanType === 'dish' ? Colors.bg : '#fff'} />
+              <Text style={[styles.toggleText, scanType === 'dish' && styles.toggleTextActive]}>Dish</Text>
+            </TouchableOpacity>
+          </View>
+
           <TouchableOpacity onPress={() => setStage('manual')} style={styles.camBtn}>
             <Ionicons name="list" size={24} color="#fff" />
           </TouchableOpacity>
@@ -308,7 +327,9 @@ export default function ScannerScreen({ navigation }: any) {
           <View style={[styles.corner, styles.cBL]} />
           <View style={[styles.corner, styles.cBR]} />
         </View>
-        <Text style={styles.hint}>Point at the menu and tap capture</Text>
+        <Text style={styles.hint}>
+          {scanType === 'menu' ? 'Point at the menu' : 'Point at your food'} and tap capture
+        </Text>
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.sideBtn} onPress={handlePickImage}>
             <Ionicons name="images" size={24} color="#fff" />
@@ -330,7 +351,12 @@ const styles = StyleSheet.create({
   camera: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: 20 },
   camBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
-  camTitle: { ...Typography.bodyMedium, color: '#fff' },
+  
+  toggleContainer: { flexDirection: 'row', backgroundColor: 'rgba(0,0,0,0.4)', borderRadius: 20, padding: 4 },
+  toggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16 },
+  toggleBtnActive: { backgroundColor: Colors.accent },
+  toggleText: { ...Typography.caption, color: '#fff', fontWeight: '600' },
+  toggleTextActive: { color: Colors.bg },
   scanFrame: { flex: 1, marginHorizontal: 30, marginVertical: 40 },
   corner: { position: 'absolute', width: 30, height: 30, borderColor: Colors.accent, borderWidth: 3 },
   cTL: { top: 0, left: 0, borderRightWidth: 0, borderBottomWidth: 0 },

@@ -3,11 +3,13 @@
 // ==========================================
 
 export interface UserProfile {
-  goal: 'weight_loss' | 'muscle_gain' | 'maintenance' | 'low_carb';
+  goal: 'weight_loss' | 'muscle_gain' | 'maintenance' | 'keto' | 'diabetic_friendly' | 'heart_healthy';
+  dietType: 'vegetarian' | 'vegan' | 'pescatarian' | 'anything';
   dailyCalories: number;
   proteinTarget: number;
   carbLimit: number;
-  restrictions: string[];
+  fiberLimit: number;
+  restrictions: string[]; // Allergies/avoidances (e.g., 'dairy', 'gluten', 'nuts')
   cheatDayEnabled: boolean;
   onboardingComplete: boolean;
 }
@@ -17,6 +19,7 @@ export interface MacroInfo {
   protein: number;
   carbs: number;
   fat: number;
+  fiber: number;
 }
 
 export interface MealEntry {
@@ -43,7 +46,8 @@ export type Verdict = 'top_pick' | 'good' | 'skip';
 export interface RankedDish extends DishWithMacros {
   score: number;
   verdict: Verdict;
-  reason: string;
+  reason: string; // Explainable AI reason
+  warnings: string[]; // Things to avoid/watch out for
   customizationTip: string;
 }
 
@@ -51,6 +55,7 @@ export interface RemainingBudget {
   calories: number;
   protein: number;
   carbs: number;
+  fiber: number;
 }
 
 export interface ChatMessage {

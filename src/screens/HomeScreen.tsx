@@ -57,7 +57,7 @@ export default function HomeScreen({ navigation }: any) {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={styles.greeting}>
               {isCheatDay ? '🍕 Cheat Day Active' : '👋 Hey there!'}
             </Text>
@@ -65,12 +65,21 @@ export default function HomeScreen({ navigation }: any) {
               {isCheatDay ? 'Damage Control Mode' : "Today's Budget"}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.profileBtn}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            <Ionicons name="person-circle" size={36} color={accentColor} />
-          </TouchableOpacity>
+          
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => navigation.navigate('History')}
+            >
+              <Ionicons name="time" size={26} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerIconBtn}
+              onPress={() => navigation.navigate('Profile')}
+            >
+              <Ionicons name="settings" size={26} color={Colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Cheat Day Banner */}
@@ -82,6 +91,33 @@ export default function HomeScreen({ navigation }: any) {
             </Text>
           </View>
         )}
+
+        {/* Quick Actions */}
+        <View style={styles.actionsContainer}>
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: Colors.accent }]}
+            onPress={() => navigation.navigate('Scanner', { scanType: 'menu' })}
+            activeOpacity={0.8}
+          >
+            <View style={styles.actionIconWrap}>
+              <Ionicons name="document-text" size={24} color={Colors.bg} />
+            </View>
+            <Text style={styles.actionBtnTitle}>Scan Menu</Text>
+            <Text style={styles.actionBtnSub}>Analyze full menu</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={[styles.actionBtn, { backgroundColor: Colors.bgCard, borderWidth: 1, borderColor: Colors.accentBorder }]}
+            onPress={() => navigation.navigate('Scanner', { scanType: 'dish' })}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.actionIconWrap, { backgroundColor: Colors.accentBg }]}>
+              <Ionicons name="restaurant" size={24} color={Colors.accent} />
+            </View>
+            <Text style={[styles.actionBtnTitle, { color: Colors.textPrimary }]}>Scan Dish</Text>
+            <Text style={styles.actionBtnSub}>Identify food & macros</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Macro Cards */}
         <View style={styles.macroRow}>
@@ -107,6 +143,14 @@ export default function HomeScreen({ navigation }: any) {
             total={profile.carbLimit}
             color={Colors.macroCarbs}
             icon="nutrition"
+            unit="g"
+          />
+          <MacroCard
+            label="Fiber"
+            current={todayMeals.reduce((s, m) => s + m.macros.fiber || 0, 0)}
+            total={profile.fiberLimit || 30}
+            color={Colors.goodFit}
+            icon="leaf"
             unit="g"
           />
         </View>
@@ -145,6 +189,10 @@ export default function HomeScreen({ navigation }: any) {
                     <Text style={[styles.mealMacro, { color: Colors.macroFat }]}>
                       {meal.macros.fat}g F
                     </Text>
+                    <Text style={styles.macroDot}>·</Text>
+                    <Text style={[styles.mealMacro, { color: Colors.goodFit }]}>
+                      {meal.macros.fiber || 0}g Fib
+                    </Text>
                   </View>
                   {meal.restaurantName && (
                     <Text style={styles.mealRestaurant}>📍 {meal.restaurantName}</Text>
@@ -164,14 +212,6 @@ export default function HomeScreen({ navigation }: any) {
         <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* FAB */}
-      <TouchableOpacity
-        style={[styles.fab, { backgroundColor: accentColor }]}
-        onPress={() => navigation.navigate('Scanner')}
-        activeOpacity={0.85}
-      >
-        <Ionicons name="camera" size={28} color={Colors.bg} />
-      </TouchableOpacity>
     </View>
   );
 }
@@ -187,6 +227,7 @@ const styles = StyleSheet.create({
   },
   greeting: { ...Typography.bodySm, color: Colors.textSecondary, marginBottom: 4 },
   title: { ...Typography.h2, color: Colors.textPrimary },
+  headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.bgCard, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
   profileBtn: { padding: 4 },
   cheatBanner: {
     flexDirection: 'row',
@@ -200,9 +241,16 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   cheatBannerText: { ...Typography.bodySm, color: Colors.amber, flex: 1 },
-  macroRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  
+  // Quick Actions
+  actionsContainer: { flexDirection: 'row', gap: 12, marginBottom: 20 },
+  actionBtn: { flex: 1, padding: 16, borderRadius: BorderRadius.xl, alignItems: 'flex-start' },
+  actionIconWrap: { padding: 10, borderRadius: BorderRadius.md, backgroundColor: 'rgba(255,255,255,0.2)', marginBottom: 12 },
+  actionBtnTitle: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '700', marginBottom: 2 },
+  actionBtnSub: { ...Typography.caption, color: Colors.textMuted },
+  macroRow: { flexDirection: 'row', gap: 10, marginBottom: 8, flexWrap: 'wrap' },
   macroCard: {
-    flex: 1,
+    width: '48%',
     backgroundColor: Colors.bgCard,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
@@ -253,19 +301,4 @@ const styles = StyleSheet.create({
   macroDot: { color: Colors.textMuted, marginHorizontal: 4, fontSize: 10 },
   mealRestaurant: { ...Typography.caption, color: Colors.textMuted, marginTop: 4 },
   deleteBtn: { padding: 4 },
-  fab: {
-    position: 'absolute',
-    bottom: 30,
-    right: 20,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 8,
-    shadowColor: Colors.accent,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-  },
 });

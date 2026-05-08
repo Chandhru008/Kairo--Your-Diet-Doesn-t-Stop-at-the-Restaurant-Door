@@ -34,7 +34,7 @@ export async function estimateMacros(
   dishName: string,
   description: string
 ): Promise<MacroInfo> {
-  const system = `You are a nutritionist. Estimate the macronutrient content per serving of Indian restaurant dishes. Return ONLY valid JSON with no markdown: {"calories": number, "protein": number, "carbs": number, "fat": number}. All values in grams except calories in kcal.`;
+  const system = `You are a nutritionist. Estimate the macronutrient content per serving of Indian restaurant dishes. Return ONLY valid JSON with no markdown: {"calories": number, "protein": number, "carbs": number, "fat": number, "fiber": number}. All values in grams except calories in kcal.`;
   const msg = `Dish: ${dishName}\nDescription: ${description}\nEstimate the macros for a standard restaurant serving.`;
 
   try {
@@ -42,7 +42,7 @@ export async function estimateMacros(
     const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned);
   } catch {
-    return { calories: 350, protein: 15, carbs: 30, fat: 15 };
+    return { calories: 350, protein: 15, carbs: 30, fat: 15, fiber: 5 };
   }
 }
 
@@ -92,12 +92,13 @@ Rank ALL dishes. Return the JSON array.`;
     }).sort((a, b) => b.score - a.score);
   } catch (error) {
     console.error('Ranking failed:', error);
-    return dishes.map((dish, i) => ({
+    return dishes.map(dish => ({
       ...dish,
-      score: 50,
-      verdict: 'good' as const,
-      reason: 'Ranking unavailable',
-      customizationTip: 'Ask your server about preparation',
+      score: 80,
+      verdict: 'good',
+      reason: 'AI reasoning temporarily unavailable.',
+      warnings: [],
+      customizationTip: 'Ask the waiter for healthy modifications.',
     }));
   }
 }

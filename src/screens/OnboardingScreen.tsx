@@ -14,28 +14,36 @@ const GOALS = [
   { key: 'weight_loss', icon: 'flame', label: 'Weight Loss', desc: 'Calorie deficit focus' },
   { key: 'muscle_gain', icon: 'barbell', label: 'Muscle Gain', desc: 'High protein priority' },
   { key: 'maintenance', icon: 'heart', label: 'Maintenance', desc: 'Balanced nutrition' },
-  { key: 'low_carb', icon: 'leaf', label: 'Low Carb', desc: 'Carb-restricted diet' },
+  { key: 'keto', icon: 'leaf', label: 'Keto / Low Carb', desc: 'Strict carb limit (<50g)' },
+  { key: 'diabetic_friendly', icon: 'medical', label: 'Diabetic', desc: 'Sugar & carb control' },
+  { key: 'heart_healthy', icon: 'fitness', label: 'Heart Healthy', desc: 'Low fat & sodium focus' },
 ] as const;
 
-const RESTRICTIONS = [
+const DIET_TYPES = [
+  { key: 'anything', label: 'Anything', icon: 'restaurant' },
   { key: 'vegetarian', label: 'Vegetarian', icon: 'leaf' },
   { key: 'vegan', label: 'Vegan', icon: 'nutrition' },
-  { key: 'gluten_free', label: 'Gluten-Free', icon: 'close-circle' },
-  { key: 'dairy_free', label: 'Dairy-Free', icon: 'water' },
-  { key: 'nut_free', label: 'Nut-Free', icon: 'alert-circle' },
-  { key: 'halal', label: 'Halal', icon: 'checkmark-circle' },
+  { key: 'pescatarian', label: 'Pescatarian', icon: 'fish' },
+] as const;
+
+const ALLERGIES = [
+  { key: 'dairy', label: 'Dairy-Free', icon: 'water' },
+  { key: 'gluten', label: 'Gluten-Free', icon: 'close-circle' },
+  { key: 'nuts', label: 'Nut-Free', icon: 'alert-circle' },
+  { key: 'soy', label: 'Soy-Free', icon: 'leaf-outline' },
 ] as const;
 
 export default function OnboardingScreen({ navigation }: any) {
-  const { profile, updateProfile } = useApp();
+  const { profile, updateProfile, logout, isAuthenticated } = useApp();
   const [goal, setGoal] = useState<string>(profile.goal);
+  const [dietType, setDietType] = useState<string>(profile.dietType || 'anything');
   const [calories, setCalories] = useState(String(profile.dailyCalories));
   const [protein, setProtein] = useState(String(profile.proteinTarget));
   const [carbs, setCarbs] = useState(String(profile.carbLimit));
   const [restrictions, setRestrictions] = useState<string[]>(profile.restrictions);
   const [cheatDay, setCheatDay] = useState(profile.cheatDayEnabled);
 
-  const toggleRestriction = (key: string) => {
+  const toggleAllergy = (key: string) => {
     setRestrictions(prev =>
       prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]
     );
@@ -44,9 +52,11 @@ export default function OnboardingScreen({ navigation }: any) {
   const handleSave = async () => {
     await updateProfile({
       goal: goal as any,
+      dietType: dietType as any,
       dailyCalories: parseInt(calories) || 2000,
       proteinTarget: parseInt(protein) || 120,
       carbLimit: parseInt(carbs) || 250,
+      fiberLimit: profile.fiberLimit || 30,
       restrictions,
       cheatDayEnabled: cheatDay,
       onboardingComplete: true,
@@ -151,10 +161,35 @@ export default function OnboardingScreen({ navigation }: any) {
           </View>
         </View>
 
-        {/* Dietary Restrictions */}
-        <Text style={styles.sectionLabel}>DIETARY RESTRICTIONS</Text>
+        {/* Diet Type */}
+        <Text style={styles.sectionLabel}>DIET PREFERENCE</Text>
         <View style={styles.restrictionGrid}>
-          {RESTRICTIONS.map(r => (
+          {DIET_TYPES.map(d => (
+            <TouchableOpacity
+              key={d.key}
+              style={[
+                styles.restrictionChip,
+                dietType === d.key && { borderColor: accentColor, backgroundColor: accentBg },
+              ]}
+              onPress={() => setDietType(d.key)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={d.icon as any}
+                size={16}
+                color={dietType === d.key ? accentColor : Colors.textSecondary}
+              />
+              <Text style={[styles.restrictionLabel, dietType === d.key && { color: accentColor }]}>
+                {d.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Allergies / Avoidances */}
+        <Text style={styles.sectionLabel}>ALLERGIES & AVOIDANCES</Text>
+        <View style={styles.restrictionGrid}>
+          {ALLERGIES.map(r => (
             <TouchableOpacity
               key={r.key}
               style={[
@@ -164,7 +199,7 @@ export default function OnboardingScreen({ navigation }: any) {
                   backgroundColor: accentBg,
                 },
               ]}
-              onPress={() => toggleRestriction(r.key)}
+              onPress={() => toggleAllergy(r.key)}
               activeOpacity={0.7}
             >
               <Ionicons
@@ -219,6 +254,20 @@ export default function OnboardingScreen({ navigation }: any) {
           <Ionicons name="checkmark-circle" size={22} color={Colors.bg} />
           <Text style={styles.saveBtnText}>Save Profile & Continue</Text>
         </TouchableOpacity>
+
+        {/* Logout Button (only show if authenticated) */}
+        {isAuthenticated && (
+          <TouchableOpacity
+            style={styles.logoutBtn}
+            onPress={async () => {
+              await logout();
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="log-out" size={20} color={Colors.skip} />
+            <Text style={styles.logoutBtnText}>Log Out</Text>
+          </TouchableOpacity>
+        )}
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -398,4 +447,6 @@ const styles = StyleSheet.create({
     color: Colors.bg,
     fontWeight: '700',
   },
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, marginTop: 12, borderRadius: BorderRadius.lg, backgroundColor: 'rgba(255,82,82,0.1)', borderWidth: 1, borderColor: 'rgba(255,82,82,0.2)' },
+  logoutBtnText: { ...Typography.bodyMedium, color: Colors.skip, fontWeight: '700' },
 });

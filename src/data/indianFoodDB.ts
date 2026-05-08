@@ -10,6 +10,7 @@ export interface FoodEntry {
   protein: number;
   carbs: number;
   fat: number;
+  fiber: number;
 }
 
 // Generate keywords automatically from dish name
@@ -75,6 +76,7 @@ export const indianFoodDB: FoodEntry[] = (rawData as any[]).map(
     protein,
     carbs,
     fat,
+    fiber: Math.round(carbs * 0.15), // Estimate: 15% of carbs is fiber
   })
 );
 
