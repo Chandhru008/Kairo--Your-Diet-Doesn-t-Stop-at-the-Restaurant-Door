@@ -1,13 +1,14 @@
 // Local ranking service — no API needed
 // Ranks dishes based on how well they fit the user's remaining macro budget
 import { DishWithMacros, RankedDish, RemainingBudget, Verdict, UserProfile } from '../types';
+import { resolveIngredients } from './riskEngine/ingredientResolver';
 
 export function rankDishesLocally(
   dishes: DishWithMacros[],
   budget: RemainingBudget,
   profile: UserProfile
 ): RankedDish[] {
-  const { goal, cheatDayEnabled: cheatDay, dietType, restrictions } = profile;
+  const { goal, cheatDayEnabled: cheatDay, dietType, dietaryPreferences, allergies } = profile;
   const scored = dishes.map(dish => {
     let score = 50; // base score
 
@@ -59,8 +60,17 @@ export function rankDishesLocally(
       if (dietType === 'vegan' && n.match(/(chicken|mutton|fish|prawn|beef|pork|meat|gosht|paneer|ghee|butter|curd|lassi|milk|cheese|egg)/)) score -= 100;
       if (dietType === 'pescatarian' && n.match(/(chicken|mutton|beef|pork|meat|gosht)/)) score -= 100;
 
-      if (restrictions.includes('dairy') && n.match(/(paneer|ghee|butter|curd|lassi|milk|cheese|malai)/)) score -= 100;
-      if (restrictions.includes('gluten') && n.match(/(naan|roti|paratha|kulcha|puri|bhatura)/)) score -= 100;
+      if (dietaryPreferences.includes('lactose_free') && n.match(/(paneer|ghee|butter|curd|lassi|milk|cheese|malai)/)) score -= 100;
+      if (dietaryPreferences.includes('gluten_free') && n.match(/(naan|roti|paratha|kulcha|puri|bhatura)/)) score -= 100;
+
+      // Allergy enforcement — uses the shared ingredient knowledge base so
+      // every declared allergen (not just dairy/gluten) is caught, closing
+      // the gap where nuts/soy restrictions were previously silent.
+      if (allergies.length > 0) {
+        const mentions = resolveIngredients(`${dish.name} ${dish.description || ''}`, 'dish_description');
+        const hasAllergenMatch = mentions.some(m => m.entry.allergenRelationship.some(a => allergies.some(al => al.allergen === a)));
+        if (hasAllergenMatch) score -= 100;
+      }
 
       // Penalty if over budget
       if (!calFit) score -= 20;

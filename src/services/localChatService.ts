@@ -1,13 +1,115 @@
 // Local chat service — no API needed
 // Answers menu questions using template-based logic
 import { DishWithMacros, RemainingBudget } from '../types';
+import { RiskAssessment, RISK_LEVEL_LABEL, ALLERGEN_LABEL } from '../types/risk';
+
+function findAssessmentForQuery(
+  q: string,
+  dishes: DishWithMacros[],
+  riskAssessments: Record<string, RiskAssessment>
+): RiskAssessment | undefined {
+  for (const dish of dishes) {
+    if (q.includes(dish.name.toLowerCase()) && riskAssessments[dish.name]) {
+      return riskAssessments[dish.name];
+    }
+  }
+  // No dish named in the question — fall back to the most concerning one, if any.
+  const flagged = Object.values(riskAssessments).filter(a => a.overallStatus !== 'green');
+  return flagged[0];
+}
+
+/**
+ * Answers questions about the structured personalized risk assessment.
+ * This NEVER invents a risk level or ingredient relationship — it only
+ * reads back what the deterministic risk engine already computed.
+ */
+function answerCompareQuestion(dishes: DishWithMacros[], riskAssessments: Record<string, RiskAssessment>): string | null {
+  const assessed = dishes.filter(d => riskAssessments[d.name]);
+  if (assessed.length < 2) {
+    return "I need at least two scanned dishes with an assessment to compare. Select dishes on the Results screen (or ask about specific dish names) and try again.";
+  }
+  const lines = assessed.map(d => {
+    const a = riskAssessments[d.name];
+    const allergyCount = a.allergens.length;
+    const verifyCount = a.recommendedVerification.length;
+    return `**${d.name}** — ${RISK_LEVEL_LABEL[a.overallStatus]}${allergyCount ? `, ${allergyCount} allergen finding(s)` : ''}${verifyCount ? `, ${verifyCount} item(s) to verify` : ''}`;
+  });
+  return `Comparing based on your profile (factors only, not an overall ranking):\n${lines.join('\n')}\n\nOpen the Compare screen from Results for a full side-by-side breakdown.`;
+}
+
+function answerRiskQuestion(question: string, dishes: DishWithMacros[], riskAssessments: Record<string, RiskAssessment>): string | null {
+  const q = question.toLowerCase();
+
+  if (/compare (these|the|my)? ?dishes|compare.*profile/.test(q)) {
+    return answerCompareQuestion(dishes, riskAssessments);
+  }
+
+  const isRiskQuestion = /why.*(flag|alert|concern)|derived|allerg|confirmed or inferred|what.*missing|what.*verify|how can i modify|modify this|ask the restaurant|cross.?contact/.test(q);
+  if (!isRiskQuestion) return null;
+  if (Object.keys(riskAssessments).length === 0) {
+    return "I don't have a personalized risk assessment loaded yet — scan a menu or dish first.";
+  }
+
+  const assessment = findAssessmentForQuery(q, dishes, riskAssessments);
+  if (!assessment) {
+    return "I didn't find any flagged concerns for the currently loaded dishes based on your profile.";
+  }
+
+  if (/why.*(flag|alert|concern)/.test(q)) {
+    if (assessment.riskFactors.length === 0) {
+      return `**${assessment.foodName}**: ${RISK_LEVEL_LABEL[assessment.overallStatus]} — no specific risk factors matched your profile.`;
+    }
+    return `**${assessment.foodName}** (${RISK_LEVEL_LABEL[assessment.overallStatus]}):\n` +
+      assessment.riskFactors.map(f => `• ${f.summary} — relevant to your ${f.userFactor}.`).join('\n');
+  }
+
+  if (/derived|allerg/.test(q)) {
+    if (assessment.allergens.length === 0) {
+      return `No allergen-relevant ingredients were detected in **${assessment.foodName}** for your declared allergies.`;
+    }
+    return assessment.allergens.map(a =>
+      `${a.ingredient} → ${a.relation === 'derived' ? `${ALLERGEN_LABEL[a.allergen]}-derived` : ALLERGEN_LABEL[a.allergen]} (your ${a.severity} ${ALLERGEN_LABEL[a.allergen].toLowerCase()} allergy)`
+    ).join('\n');
+  }
+
+  if (/confirmed or inferred/.test(q)) {
+    if (assessment.riskFactors.length === 0) return `No findings to classify for **${assessment.foodName}**.`;
+    return assessment.riskFactors.map(f => `${f.summary} — status: ${f.status.replace('_', ' ').toUpperCase()}`).join('\n');
+  }
+
+  if (/what.*missing|what.*don.?t know/.test(q)) {
+    return `What we don't know about **${assessment.foodName}**:\n` + assessment.unknowns.map(u => `? ${u}`).join('\n');
+  }
+
+  if (/what.*verify/.test(q)) {
+    if (assessment.recommendedVerification.length === 0) return `Nothing specific to verify for **${assessment.foodName}** based on the current assessment.`;
+    return assessment.recommendedVerification.map(v => `• ${v}`).join('\n');
+  }
+
+  if (/how can i modify|modify this/.test(q)) {
+    if (assessment.possibleModifications.length === 0) return `No specific modification suggestions for **${assessment.foodName}**.`;
+    return assessment.possibleModifications.map(m => `• ${m}`).join('\n') +
+      '\n\nNote: a modification may reduce an identified concern, but always verify with the restaurant if it involves an allergy.';
+  }
+
+  if (/ask the restaurant|cross.?contact/.test(q)) {
+    if (assessment.questionsToAsk.length === 0) return `No specific questions generated for **${assessment.foodName}**.`;
+    return 'Questions to ask before eating:\n' + assessment.questionsToAsk.map(qq => `• ${qq}`).join('\n');
+  }
+
+  return null;
+}
 
 export function localChatResponse(
   question: string,
   dishes: DishWithMacros[],
   budget: RemainingBudget,
-  goal: string
+  goal: string,
+  riskAssessments: Record<string, RiskAssessment> = {}
 ): string {
+  const riskAnswer = answerRiskQuestion(question, dishes, riskAssessments);
+  if (riskAnswer) return riskAnswer;
+
   const q = question.toLowerCase();
 
   // Most protein

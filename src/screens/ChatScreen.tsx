@@ -12,14 +12,17 @@ import { ChatMessage } from '../types';
 
 const QUICK_REPLIES = [
   'Which has the most protein?',
+  'Why was this flagged?',
+  'What don\'t we know?',
+  'What should I verify?',
+  'How can I modify this?',
   'Can I eat two dishes?',
-  'What if I skip the rice?',
   'Lowest calorie option?',
-  'Best combo under 600 kcal?',
 ];
 
 export default function ChatScreen({ navigation }: any) {
-  const { dishesWithMacros, budget, profile } = useApp();
+  const { dishesWithMacros, budget, profile, themeMode, riskAssessments } = useApp();
+  styles = createStyles();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<ScrollView>(null);
@@ -49,7 +52,8 @@ export default function ChatScreen({ navigation }: any) {
       text.trim(),
       dishesWithMacros,
       budget,
-      profile.goal
+      profile.goal,
+      riskAssessments
     );
 
     const aiMsg: ChatMessage = {
@@ -70,7 +74,7 @@ export default function ChatScreen({ navigation }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={0}
     >
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -173,7 +177,7 @@ export default function ChatScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   header: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -237,3 +241,5 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: { backgroundColor: Colors.bgInput },
 });
+
+let styles = createStyles();

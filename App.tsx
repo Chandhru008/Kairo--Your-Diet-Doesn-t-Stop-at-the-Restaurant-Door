@@ -4,12 +4,11 @@ import { createStackNavigator } from '@react-navigation/stack';
 import { AppProvider, useApp } from './src/context/AppContext';
 import AuthScreen from './src/screens/AuthScreen';
 import AIWizardScreen from './src/screens/AIWizardScreen';
-import OnboardingScreen from './src/screens/OnboardingScreen';
-import HomeScreen from './src/screens/HomeScreen';
 import ScannerScreen from './src/screens/ScannerScreen';
 import ResultsScreen from './src/screens/ResultsScreen';
-import HistoryScreen from './src/screens/HistoryScreen';
 import ChatScreen from './src/screens/ChatScreen';
+import CompareScreen from './src/screens/CompareScreen';
+import MainTabs from './src/navigation/MainTabs';
 
 const Stack = createStackNavigator();
 
@@ -19,23 +18,39 @@ const DarkTheme = {
   colors: {
     ...DefaultTheme.colors,
     primary: '#00E676',
-    background: '#0A0E17',
-    card: '#141927',
+    background: '#000000',
+    card: '#000000',
     text: '#F0F2F8',
-    border: '#252E45',
+    border: '#1F1F1F',
     notification: '#00E676',
   },
 };
 
+const LightTheme = {
+  ...DefaultTheme,
+  dark: false,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#00A853',
+    background: '#FFFFFF',
+    card: '#FFFFFF',
+    text: '#1B2430',
+    border: '#EAEAEA',
+    notification: '#00A853',
+  },
+};
+
 function AppNavigator() {
-  const { isAuthenticated, profile } = useApp();
+  const { isAuthenticated, profile, themeMode } = useApp();
+  const navigatorTheme = themeMode === 'light' ? LightTheme : DarkTheme;
+  const appBg = themeMode === 'light' ? '#FFFFFF' : '#000000';
 
   return (
-    <NavigationContainer theme={DarkTheme}>
+    <NavigationContainer theme={navigatorTheme}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
-          cardStyle: { backgroundColor: '#0A0E17' },
+          cardStyle: { backgroundColor: appBg },
         }}
       >
         {!isAuthenticated ? (
@@ -44,15 +59,14 @@ function AppNavigator() {
           <Stack.Screen name="AIWizard" component={AIWizardScreen} />
         ) : (
           <>
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="Profile" component={OnboardingScreen} />
-            <Stack.Screen name="History" component={HistoryScreen} />
+            <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen
               name="Scanner"
               component={ScannerScreen}
               options={{ presentation: 'modal' }}
             />
             <Stack.Screen name="Results" component={ResultsScreen} />
+            <Stack.Screen name="Compare" component={CompareScreen} />
             <Stack.Screen name="Chat" component={ChatScreen} />
           </>
         )}

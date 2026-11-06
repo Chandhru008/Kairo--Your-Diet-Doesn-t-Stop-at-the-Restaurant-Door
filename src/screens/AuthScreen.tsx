@@ -5,7 +5,8 @@ import { Typography, BorderRadius } from '../theme/typography';
 import { useApp } from '../context/AppContext';
 
 export default function AuthScreen() {
-  const { login } = useApp();
+  const { login, themeMode } = useApp();
+  styles = createStyles();
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -23,7 +24,10 @@ export default function AuthScreen() {
       style={styles.container} 
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar
+        barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'}
+        backgroundColor={Colors.bg}
+      />
       
       <View style={styles.card}>
         <Text style={styles.logo}>Kairo<Text style={{color: Colors.accent}}>AI</Text></Text>
@@ -73,7 +77,7 @@ export default function AuthScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -91,7 +95,7 @@ const styles = StyleSheet.create({
   },
   logo: {
     ...Typography.h1,
-    color: '#fff',
+    color: Colors.textPrimary,
     textAlign: 'center',
     marginBottom: 8,
   },
@@ -146,3 +150,5 @@ const styles = StyleSheet.create({
     color: Colors.accent,
   },
 });
+
+let styles = createStyles();

@@ -5,8 +5,16 @@ import { Colors } from '../theme/colors';
 import { Typography, BorderRadius } from '../theme/typography';
 import { getAllMeals, seedMockHistory } from '../services/storageService';
 import { MealEntry } from '../types';
+import { RiskLevel } from '../types/risk';
+import { useApp } from '../context/AppContext';
+
+const RISK_DOT_COLOR: Record<RiskLevel, string> = {
+  green: Colors.topPick, yellow: Colors.amber, orange: '#FF9800', red: Colors.skip, grey: Colors.textMuted,
+};
 
 export default function HistoryScreen({ navigation }: any) {
+  const { themeMode } = useApp();
+  styles = createStyles();
   const [history, setHistory] = useState<Record<string, MealEntry[]>>({});
   const [totalMeals, setTotalMeals] = useState(0);
   const [chartData, setChartData] = useState<{date: string, cals: number}[]>([]);
@@ -46,11 +54,13 @@ export default function HistoryScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
-        </TouchableOpacity>
+        {navigation.canGoBack() && (
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={24} color={Colors.textPrimary} />
+          </TouchableOpacity>
+        )}
         <View style={{ flex: 1, marginLeft: 16 }}>
           <Text style={styles.title}>Meal History</Text>
           <Text style={styles.subtitle}>{totalMeals} meals logged over time</Text>
@@ -101,7 +111,15 @@ export default function HistoryScreen({ navigation }: any) {
 
               {meals.map(meal => (
                 <View key={meal.id} style={styles.mealCard}>
-                  <Text style={styles.mealName}>{meal.name}</Text>
+                  <View style={styles.mealNameRow}>
+                    <Text style={styles.mealName}>{meal.name}</Text>
+                    {meal.riskLevel && (
+                      <View style={[styles.riskDot, { backgroundColor: RISK_DOT_COLOR[meal.riskLevel] }]} />
+                    )}
+                  </View>
+                  {meal.riskFactorSummaries && meal.riskFactorSummaries.length > 0 && (
+                    <Text style={styles.riskSummaryText} numberOfLines={2}>{meal.riskFactorSummaries[0]}</Text>
+                  )}
                   <View style={styles.mealMacroRow}>
                     <Text style={[styles.mealMacro, { color: Colors.macroCalories }]}>{meal.macros.calories} kcal</Text>
                     <Text style={styles.macroDot}>·</Text>
@@ -123,7 +141,7 @@ export default function HistoryScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 60, paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 1, borderColor: Colors.border },
   backBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.bgCard, alignItems: 'center', justifyContent: 'center' },
@@ -138,7 +156,10 @@ const styles = StyleSheet.create({
   dateText: { ...Typography.bodySm, color: Colors.accent, fontWeight: '700' },
   dateLine: { flex: 1, height: 1, backgroundColor: Colors.border },
   mealCard: { backgroundColor: Colors.bgCard, padding: 16, borderRadius: BorderRadius.md, borderWidth: 1, borderColor: Colors.border, marginBottom: 8 },
-  mealName: { ...Typography.bodyMedium, color: Colors.textPrimary, marginBottom: 6 },
+  mealNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  mealName: { ...Typography.bodyMedium, color: Colors.textPrimary },
+  riskDot: { width: 8, height: 8, borderRadius: 4 },
+  riskSummaryText: { ...Typography.caption, color: Colors.textMuted, marginBottom: 6, fontStyle: 'italic' },
   mealMacroRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' },
   mealMacro: { ...Typography.caption, fontSize: 12 },
   macroDot: { color: Colors.textMuted, marginHorizontal: 6, fontSize: 10 },
@@ -152,3 +173,5 @@ const styles = StyleSheet.create({
   barLabel: { ...Typography.caption, fontSize: 10, color: Colors.textMuted },
   barVal: { ...Typography.caption, fontSize: 9, color: Colors.textSecondary },
 });
+
+let styles = createStyles();

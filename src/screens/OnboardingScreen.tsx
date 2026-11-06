@@ -1,12 +1,17 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  TextInput, StatusBar, Dimensions, Animated,
+  TextInput, StatusBar, Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography, Spacing, BorderRadius } from '../theme/typography';
 import { useApp } from '../context/AppContext';
+import {
+  Allergen, UserAllergy, MedicalCondition, DietaryPreference,
+  ALLERGEN_LABEL, CONDITION_LABEL, DIETARY_PREFERENCE_LABEL,
+} from '../types/risk';
+import { ALLERGEN_OPTIONS, CONDITION_OPTIONS, DIETARY_PREF_OPTIONS, SEVERITY_ORDER, SEVERITY_ABBR } from '../constants/profileOptions';
 
 const { width } = Dimensions.get('window');
 
@@ -26,27 +31,52 @@ const DIET_TYPES = [
   { key: 'pescatarian', label: 'Pescatarian', icon: 'fish' },
 ] as const;
 
-const ALLERGIES = [
-  { key: 'dairy', label: 'Dairy-Free', icon: 'water' },
-  { key: 'gluten', label: 'Gluten-Free', icon: 'close-circle' },
-  { key: 'nuts', label: 'Nut-Free', icon: 'alert-circle' },
-  { key: 'soy', label: 'Soy-Free', icon: 'leaf-outline' },
-] as const;
+function SectionHeader({ icon, label }: { icon: string; label: string }) {
+  return (
+    <View style={styles.sectionHeaderRow}>
+      <Ionicons name={icon as any} size={15} color={Colors.textMuted} />
+      <Text style={styles.sectionLabel}>{label}</Text>
+    </View>
+  );
+}
 
 export default function OnboardingScreen({ navigation }: any) {
-  const { profile, updateProfile, logout, isAuthenticated } = useApp();
+  const { profile, updateProfile, logout, isAuthenticated, themeMode } = useApp();
+  styles = createStyles();
   const [goal, setGoal] = useState<string>(profile.goal);
   const [dietType, setDietType] = useState<string>(profile.dietType || 'anything');
   const [calories, setCalories] = useState(String(profile.dailyCalories));
   const [protein, setProtein] = useState(String(profile.proteinTarget));
   const [carbs, setCarbs] = useState(String(profile.carbLimit));
-  const [restrictions, setRestrictions] = useState<string[]>(profile.restrictions);
+  const [hydrationTarget, setHydrationTarget] = useState(String(profile.hydrationTargetMl || 2000));
+  const [age, setAge] = useState(String(profile.age || 30));
+  const [gender, setGender] = useState<'male' | 'female'>(profile.gender || 'male');
+  const [weightKg, setWeightKg] = useState(String(profile.weightKg || 70));
+  const [heightCm, setHeightCm] = useState(String(profile.heightCm || 170));
+  const [activityLevel, setActivityLevel] = useState<'sedentary' | 'light' | 'moderate' | 'active'>(profile.activityLevel || 'moderate');
+  const [allergies, setAllergies] = useState<UserAllergy[]>(profile.allergies || []);
+  const [conditions, setConditions] = useState<MedicalCondition[]>(profile.conditions || []);
+  const [dietaryPreferences, setDietaryPreferences] = useState<DietaryPreference[]>(profile.dietaryPreferences || []);
   const [cheatDay, setCheatDay] = useState(profile.cheatDayEnabled);
+  const [conditionsExpanded, setConditionsExpanded] = useState(conditions.length > 0);
 
-  const toggleAllergy = (key: string) => {
-    setRestrictions(prev =>
-      prev.includes(key) ? prev.filter(r => r !== key) : [...prev, key]
-    );
+  // Tap cycles: not selected -> moderate -> severe -> mild -> not selected.
+  const cycleAllergy = (key: Allergen) => {
+    setAllergies(prev => {
+      const existing = prev.find(a => a.allergen === key);
+      if (!existing) return [...prev, { allergen: key, severity: 'moderate' }];
+      const nextIdx = SEVERITY_ORDER.indexOf(existing.severity) + 1;
+      if (nextIdx >= SEVERITY_ORDER.length) return prev.filter(a => a.allergen !== key);
+      return prev.map(a => a.allergen === key ? { ...a, severity: SEVERITY_ORDER[nextIdx] } : a);
+    });
+  };
+
+  const toggleCondition = (key: MedicalCondition) => {
+    setConditions(prev => prev.includes(key) ? prev.filter(c => c !== key) : [...prev, key]);
+  };
+
+  const toggleDietaryPref = (key: DietaryPreference) => {
+    setDietaryPreferences(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
   };
 
   const handleSave = async () => {
@@ -57,7 +87,15 @@ export default function OnboardingScreen({ navigation }: any) {
       proteinTarget: parseInt(protein) || 120,
       carbLimit: parseInt(carbs) || 250,
       fiberLimit: profile.fiberLimit || 30,
-      restrictions,
+      allergies,
+      conditions,
+      dietaryPreferences,
+      hydrationTargetMl: parseInt(hydrationTarget) || 2000,
+      age: parseInt(age) || 30,
+      gender,
+      weightKg: parseFloat(weightKg) || 70,
+      heightCm: parseFloat(heightCm) || 170,
+      activityLevel,
       cheatDayEnabled: cheatDay,
       onboardingComplete: true,
     });
@@ -67,24 +105,71 @@ export default function OnboardingScreen({ navigation }: any) {
   const accentColor = cheatDay ? Colors.amber : Colors.accent;
   const accentBg = cheatDay ? Colors.amberBg : Colors.accentBg;
 
+  const conditionsByCategory = CONDITION_OPTIONS.reduce((acc, c) => {
+    (acc[c.category] ||= []).push(c);
+    return acc;
+  }, {} as Record<string, typeof CONDITION_OPTIONS>);
+
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.logo}>🧠 MenuMind</Text>
-          <Text style={styles.title}>Set Up Your{'\n'}Diet Profile</Text>
+          <Text style={styles.logo}>🧠 KAIROS</Text>
+          <Text style={styles.title}>Your Health{'\n'}& Diet Profile</Text>
           <Text style={styles.subtitle}>
-            Tell us about your goals and we'll guide every restaurant visit.
+            This powers every personalized risk check — the more complete, the better KAIROS can flag what actually matters to you.
           </Text>
         </View>
 
+        {/* Body & Activity */}
+        <SectionHeader icon="body" label="BODY & ACTIVITY" />
+        <View style={styles.row2Col}>
+          <TouchableOpacity style={[styles.genderBtn, gender === 'male' && { borderColor: accentColor, backgroundColor: accentBg }]} onPress={() => setGender('male')}>
+            <Text style={[styles.genderBtnText, gender === 'male' && { color: accentColor }]}>Male</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.genderBtn, gender === 'female' && { borderColor: accentColor, backgroundColor: accentBg }]} onPress={() => setGender('female')}>
+            <Text style={[styles.genderBtnText, gender === 'female' && { color: accentColor }]}>Female</Text>
+          </TouchableOpacity>
+        </View>
+        <View style={styles.macroInputRow}>
+          <View style={styles.macroInputCard}>
+            <Text style={styles.macroInputLabel}>Age</Text>
+            <TextInput style={styles.macroInput} value={age} onChangeText={setAge} keyboardType="numeric" placeholderTextColor={Colors.textMuted} />
+            <Text style={styles.macroUnit}>yrs</Text>
+          </View>
+          <View style={styles.macroInputCard}>
+            <Text style={styles.macroInputLabel}>Weight</Text>
+            <TextInput style={styles.macroInput} value={weightKg} onChangeText={setWeightKg} keyboardType="numeric" placeholderTextColor={Colors.textMuted} />
+            <Text style={styles.macroUnit}>kg</Text>
+          </View>
+          <View style={styles.macroInputCard}>
+            <Text style={styles.macroInputLabel}>Height</Text>
+            <TextInput style={styles.macroInput} value={heightCm} onChangeText={setHeightCm} keyboardType="numeric" placeholderTextColor={Colors.textMuted} />
+            <Text style={styles.macroUnit}>cm</Text>
+          </View>
+        </View>
+        <View style={styles.restrictionGrid}>
+          {(['sedentary', 'light', 'moderate', 'active'] as const).map(act => (
+            <TouchableOpacity
+              key={act}
+              style={[styles.restrictionChip, activityLevel === act && { borderColor: accentColor, backgroundColor: accentBg }]}
+              onPress={() => setActivityLevel(act)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.restrictionLabel, activityLevel === act && { color: accentColor }]}>
+                {act.charAt(0).toUpperCase() + act.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Goal Selection */}
-        <Text style={styles.sectionLabel}>YOUR GOAL</Text>
+        <SectionHeader icon="flag" label="YOUR GOAL" />
         <View style={styles.goalGrid}>
           {GOALS.map(g => (
             <TouchableOpacity
@@ -110,7 +195,7 @@ export default function OnboardingScreen({ navigation }: any) {
         </View>
 
         {/* Macro Targets */}
-        <Text style={styles.sectionLabel}>DAILY TARGETS</Text>
+        <SectionHeader icon="stats-chart" label="DAILY TARGETS" />
         <View style={styles.macroInputRow}>
           <View style={styles.macroInputCard}>
             <View style={[styles.macroIcon, { backgroundColor: 'rgba(255,82,82,0.12)' }]}>
@@ -162,7 +247,7 @@ export default function OnboardingScreen({ navigation }: any) {
         </View>
 
         {/* Diet Type */}
-        <Text style={styles.sectionLabel}>DIET PREFERENCE</Text>
+        <SectionHeader icon="restaurant" label="DIET PREFERENCE" />
         <View style={styles.restrictionGrid}>
           {DIET_TYPES.map(d => (
             <TouchableOpacity
@@ -186,41 +271,123 @@ export default function OnboardingScreen({ navigation }: any) {
           ))}
         </View>
 
-        {/* Allergies / Avoidances */}
-        <Text style={styles.sectionLabel}>ALLERGIES & AVOIDANCES</Text>
+        {/* Allergies (tap to add at Moderate, tap again to cycle severity, tap once more to remove) */}
+        <SectionHeader icon="alert-circle" label="ALLERGIES" />
+        <Text style={styles.sectionHint}>Tap to add, tap again to change severity (Moderate → Severe → Mild)</Text>
         <View style={styles.restrictionGrid}>
-          {ALLERGIES.map(r => (
+          {ALLERGEN_OPTIONS.map(a => {
+            const entry = allergies.find(x => x.allergen === a.key);
+            const active = !!entry;
+            const severe = active && entry.severity === 'severe';
+            return (
+              <TouchableOpacity
+                key={a.key}
+                style={[
+                  styles.restrictionChip,
+                  active && { borderColor: accentColor, backgroundColor: accentBg },
+                  severe && { borderColor: Colors.skip, backgroundColor: 'rgba(255,82,82,0.1)' },
+                ]}
+                onPress={() => cycleAllergy(a.key)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name={a.icon as any} size={16} color={severe ? Colors.skip : active ? accentColor : Colors.textSecondary} />
+                <Text style={[styles.restrictionLabel, active && { color: accentColor }, severe && { color: Colors.skip }]}>
+                  {ALLERGEN_LABEL[a.key]}{entry ? ` · ${SEVERITY_ABBR[entry.severity]}` : ''}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Medical Conditions — grouped, descriptive cards since the list is long */}
+        <TouchableOpacity style={styles.sectionHeaderRow} onPress={() => setConditionsExpanded(!conditionsExpanded)} activeOpacity={0.7}>
+          <Ionicons name="medical" size={15} color={Colors.textMuted} />
+          <Text style={styles.sectionLabel}>MEDICAL CONDITIONS</Text>
+          {conditions.length > 0 && (
+            <View style={styles.countBadge}><Text style={styles.countBadgeText}>{conditions.length}</Text></View>
+          )}
+          <View style={{ flex: 1 }} />
+          <Ionicons name={conditionsExpanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textMuted} />
+        </TouchableOpacity>
+        {conditionsExpanded && (
+          <>
+            <Text style={styles.sectionHint}>Used only to surface condition-relevant dietary factors, never to diagnose or prescribe.</Text>
+            {Object.entries(conditionsByCategory).map(([category, opts]) => (
+              <View key={category} style={{ marginBottom: 14 }}>
+                <Text style={styles.categoryLabel}>{category.toUpperCase()}</Text>
+                {opts.map(c => {
+                  const active = conditions.includes(c.key);
+                  return (
+                    <TouchableOpacity
+                      key={c.key}
+                      style={[styles.conditionCard, active && { borderColor: accentColor, backgroundColor: accentBg }]}
+                      onPress={() => toggleCondition(c.key)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={[styles.conditionIconWrap, active && { backgroundColor: Colors.bgCard }]}>
+                        <Ionicons name={c.icon as any} size={17} color={active ? accentColor : Colors.textSecondary} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.conditionTitle, active && { color: accentColor }]}>{CONDITION_LABEL[c.key]}</Text>
+                        <Text style={styles.conditionDesc}>{c.description}</Text>
+                      </View>
+                      <View style={[styles.checkCircle, active && { backgroundColor: accentColor, borderColor: accentColor }]}>
+                        {active && <Ionicons name="checkmark" size={13} color={Colors.bg} />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </>
+        )}
+
+        {/* Additional Dietary Preferences */}
+        <SectionHeader icon="leaf" label="OTHER DIETARY PREFERENCES" />
+        <View style={styles.restrictionGrid}>
+          {DIETARY_PREF_OPTIONS.map(p => (
             <TouchableOpacity
-              key={r.key}
+              key={p.key}
               style={[
                 styles.restrictionChip,
-                restrictions.includes(r.key) && {
-                  borderColor: accentColor,
-                  backgroundColor: accentBg,
-                },
+                dietaryPreferences.includes(p.key) && { borderColor: accentColor, backgroundColor: accentBg },
               ]}
-              onPress={() => toggleAllergy(r.key)}
+              onPress={() => toggleDietaryPref(p.key)}
               activeOpacity={0.7}
             >
-              <Ionicons
-                name={r.icon as any}
-                size={16}
-                color={restrictions.includes(r.key) ? accentColor : Colors.textSecondary}
-              />
-              <Text
-                style={[
-                  styles.restrictionLabel,
-                  restrictions.includes(r.key) && { color: accentColor },
-                ]}
-              >
-                {r.label}
+              <Ionicons name={p.icon as any} size={16} color={dietaryPreferences.includes(p.key) ? accentColor : Colors.textSecondary} />
+              <Text style={[styles.restrictionLabel, dietaryPreferences.includes(p.key) && { color: accentColor }]}>
+                {DIETARY_PREFERENCE_LABEL[p.key]}
               </Text>
             </TouchableOpacity>
           ))}
         </View>
 
+        {/* Hydration Target — always user/clinician-set, never auto-derived from conditions */}
+        <SectionHeader icon="water" label="DAILY HYDRATION TARGET" />
+        <View style={styles.macroInputRow}>
+          <View style={[styles.macroInputCard, { flex: 1 }]}>
+            <View style={[styles.macroIcon, { backgroundColor: 'rgba(100,181,246,0.12)' }]}>
+              <Ionicons name="water" size={18} color={Colors.info} />
+            </View>
+            <Text style={styles.macroInputLabel}>Target</Text>
+            <TextInput
+              style={styles.macroInput}
+              value={hydrationTarget}
+              onChangeText={setHydrationTarget}
+              keyboardType="numeric"
+              placeholderTextColor={Colors.textMuted}
+              placeholder="2000"
+            />
+            <Text style={styles.macroUnit}>ml/day</Text>
+          </View>
+        </View>
+        <Text style={styles.sectionHint}>
+          Set your own target, or use a clinician-recommended one. KAIROS never automatically increases this based on a medical condition (e.g. CKD, where fluid needs vary and should be set by your doctor).
+        </Text>
+
         {/* Cheat Day Toggle */}
-        <Text style={styles.sectionLabel}>CHEAT DAY MODE</Text>
+        <SectionHeader icon="pizza" label="CHEAT DAY MODE" />
         <TouchableOpacity
           style={[
             styles.cheatDayCard,
@@ -269,13 +436,13 @@ export default function OnboardingScreen({ navigation }: any) {
           </TouchableOpacity>
         )}
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: 100 }} />
       </ScrollView>
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.bg,
@@ -303,12 +470,62 @@ const styles = StyleSheet.create({
     ...Typography.body,
     color: Colors.textSecondary,
   },
-  sectionLabel: {
-    ...Typography.label,
-    color: Colors.textMuted,
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginTop: 24,
     marginBottom: 12,
   },
+  sectionLabel: {
+    ...Typography.label,
+    color: Colors.textMuted,
+  },
+  sectionHint: {
+    ...Typography.caption,
+    color: Colors.textMuted,
+    marginTop: -8,
+    marginBottom: 10,
+  },
+  countBadge: {
+    backgroundColor: Colors.accentBg,
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 7,
+    paddingVertical: 1,
+    marginLeft: 2,
+  },
+  countBadgeText: { ...Typography.caption, color: Colors.accent, fontWeight: '700', fontSize: 11 },
+  categoryLabel: {
+    ...Typography.caption,
+    color: Colors.textMuted,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  conditionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: Colors.bgCard,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    padding: 12,
+    marginBottom: 8,
+  },
+  conditionIconWrap: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: Colors.bgInput, alignItems: 'center', justifyContent: 'center',
+  },
+  conditionTitle: { ...Typography.bodySm, color: Colors.textPrimary, fontWeight: '700' },
+  conditionDesc: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  checkCircle: {
+    width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: Colors.textMuted,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  row2Col: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  genderBtn: { flex: 1, paddingVertical: 12, borderRadius: BorderRadius.md, backgroundColor: Colors.bgCard, borderWidth: 1, borderColor: Colors.border, alignItems: 'center' },
+  genderBtnText: { ...Typography.bodySm, color: Colors.textSecondary, fontWeight: '600' },
   goalGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -450,3 +667,5 @@ const styles = StyleSheet.create({
   logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16, marginTop: 12, borderRadius: BorderRadius.lg, backgroundColor: 'rgba(255,82,82,0.1)', borderWidth: 1, borderColor: 'rgba(255,82,82,0.2)' },
   logoutBtnText: { ...Typography.bodyMedium, color: Colors.skip, fontWeight: '700' },
 });
+
+let styles = createStyles();

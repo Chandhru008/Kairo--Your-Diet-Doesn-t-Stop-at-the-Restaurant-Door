@@ -1,7 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { UserProfile, MealEntry, RemainingBudget, RankedDish, DishWithMacros } from '../types';
-import { getProfile, saveProfile, getTodayMeals, logMeal as storageLogMeal, removeMeal, trackInteraction } from '../services/storageService';
+import { RiskAssessment } from '../types/risk';
+import {
+  getProfile, saveProfile, getTodayMeals, logMeal as storageLogMeal, removeMeal, trackInteraction, DEFAULT_PROFILE,
+  getTodayHydrationMl, logHydration as storageLogHydration,
+} from '../services/storageService';
+import { ThemeMode, setThemeMode as applyThemeMode } from '../theme/colors';
 
 interface AppContextType {
   isAuthenticated: boolean;
@@ -9,6 +14,9 @@ interface AppContextType {
   logout: () => Promise<void>;
   profile: UserProfile;
   updateProfile: (p: UserProfile) => Promise<void>;
+  themeMode: ThemeMode;
+  toggleTheme: () => Promise<void>;
+  setTheme: (mode: ThemeMode) => Promise<void>;
   todayMeals: MealEntry[];
   refreshMeals: () => Promise<void>;
   addMeal: (meal: MealEntry) => Promise<void>;
@@ -21,6 +29,13 @@ interface AppContextType {
   setDishesWithMacros: (d: DishWithMacros[]) => void;
   restaurantName: string;
   setRestaurantName: (n: string) => void;
+  // Personalized risk assessments, keyed by dish name
+  riskAssessments: Record<string, RiskAssessment>;
+  setRiskAssessments: (r: Record<string, RiskAssessment>) => void;
+  // Hydration (target is user/clinician-configured via profile.hydrationTargetMl)
+  hydrationToday: number;
+  refreshHydration: () => Promise<void>;
+  logWater: (amountMl: number) => Promise<void>;
   // Track
   trackDish: (name: string, accepted: boolean) => Promise<void>;
 }
@@ -29,21 +44,14 @@ const AppContext = createContext<AppContextType>({} as AppContextType);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [profile, setProfile] = useState<UserProfile>({
-    goal: 'maintenance',
-    dietType: 'anything',
-    dailyCalories: 2000,
-    proteinTarget: 120,
-    carbLimit: 250,
-    fiberLimit: 30,
-    restrictions: [],
-    cheatDayEnabled: false,
-    onboardingComplete: false,
-  });
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('dark');
+  const [profile, setProfile] = useState<UserProfile>({ ...DEFAULT_PROFILE });
   const [todayMeals, setTodayMeals] = useState<MealEntry[]>([]);
   const [scannedDishes, setScannedDishes] = useState<RankedDish[]>([]);
   const [dishesWithMacros, setDishesWithMacros] = useState<DishWithMacros[]>([]);
   const [restaurantName, setRestaurantName] = useState('');
+  const [riskAssessments, setRiskAssessments] = useState<Record<string, RiskAssessment>>({});
+  const [hydrationToday, setHydrationToday] = useState(0);
 
   const budget: RemainingBudget = {
     calories: Math.max(0, profile.dailyCalories - todayMeals.reduce((s, m) => s + m.macros.calories, 0)),
@@ -58,12 +66,30 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const auth = await AsyncStorage.getItem('@menumind_auth');
       if (auth) setIsAuthenticated(true);
 
+      const savedTheme = await AsyncStorage.getItem('@menumind_theme');
+      const nextTheme: ThemeMode = savedTheme === 'light' ? 'light' : 'dark';
+      setThemeModeState(nextTheme);
+      applyThemeMode(nextTheme);
+
       const p = await getProfile();
       setProfile(p);
       const m = await getTodayMeals();
       setTodayMeals(m);
+      const hydration = await getTodayHydrationMl();
+      setHydrationToday(hydration);
     })();
   }, []);
+
+  const setTheme = useCallback(async (mode: ThemeMode) => {
+    setThemeModeState(mode);
+    applyThemeMode(mode);
+    await AsyncStorage.setItem('@menumind_theme', mode);
+  }, []);
+
+  const toggleTheme = useCallback(async () => {
+    const nextMode: ThemeMode = themeMode === 'dark' ? 'light' : 'dark';
+    await setTheme(nextMode);
+  }, [setTheme, themeMode]);
 
   const login = useCallback(async (username: string, pass: string, isLogin: boolean) => {
     // Basic mock auth
@@ -75,17 +101,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.removeItem('@menumind_auth');
     await AsyncStorage.removeItem('@menumind_profile');
     setIsAuthenticated(false);
-    setProfile({
-      goal: 'maintenance',
-      dietType: 'anything',
-      dailyCalories: 2000,
-      proteinTarget: 120,
-      carbLimit: 250,
-      fiberLimit: 30,
-      restrictions: [],
-      cheatDayEnabled: false,
-      onboardingComplete: false,
-    });
+    setProfile({ ...DEFAULT_PROFILE });
   }, []);
 
   const updateProfile = useCallback(async (p: UserProfile) => {
@@ -112,15 +128,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     await trackInteraction(name, accepted);
   }, []);
 
+  const refreshHydration = useCallback(async () => {
+    const ml = await getTodayHydrationMl();
+    setHydrationToday(ml);
+  }, []);
+
+  const logWater = useCallback(async (amountMl: number) => {
+    await storageLogHydration(amountMl);
+    await refreshHydration();
+  }, [refreshHydration]);
+
   return (
     <AppContext.Provider value={{
       isAuthenticated, login, logout,
       profile, updateProfile,
+      themeMode, toggleTheme, setTheme,
       todayMeals, refreshMeals, addMeal, deleteMeal,
       budget,
       scannedDishes, setScannedDishes,
       dishesWithMacros, setDishesWithMacros,
       restaurantName, setRestaurantName,
+      riskAssessments, setRiskAssessments,
+      hydrationToday, refreshHydration, logWater,
       trackDish,
     }}>
       {children}

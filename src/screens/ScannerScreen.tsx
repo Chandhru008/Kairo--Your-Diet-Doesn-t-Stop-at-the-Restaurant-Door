@@ -10,20 +10,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography, BorderRadius } from '../theme/typography';
 import { useApp } from '../context/AppContext';
-import { parseMenuImage } from '../services/geminiService';
+import { parseMenuImage, parseIngredientLabel } from '../services/geminiService';
 import { indianFoodDB, findNutrition, FoodEntry } from '../data/indianFoodDB';
 import { rankDishesLocally } from '../services/localRankingService';
+import { assessDishes, assessPackagedFood } from '../services/riskEngine/riskEngine';
 import { DishWithMacros, ParsedDish } from '../types';
 
 const { width, height } = Dimensions.get('window');
 
 type Stage = 'camera' | 'scanning' | 'select' | 'manual';
+type ScanType = 'menu' | 'dish' | 'label';
 
 export default function ScannerScreen({ navigation, route }: any) {
-  const { profile, budget, setScannedDishes, setDishesWithMacros } = useApp();
+  const { profile, budget, setScannedDishes, setDishesWithMacros, setRiskAssessments, themeMode } = useApp();
+  styles = createStyles();
   const [permission, requestPermission] = useCameraPermissions();
   const [stage, setStage] = useState<Stage>('camera');
-  const [scanType, setScanType] = useState<'menu' | 'dish'>(route?.params?.scanType || 'menu');
+  const [scanType, setScanType] = useState<ScanType>(route?.params?.scanType || 'menu');
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
   const [statusText, setStatusText] = useState('');
   const [parsedDishes, setParsedDishes] = useState<DishWithMacros[]>([]);
@@ -31,8 +34,73 @@ export default function ScannerScreen({ navigation, route }: any) {
   const [selectedDishes, setSelectedDishes] = useState<Set<string>>(new Set());
   const cameraRef = useRef<any>(null);
 
+  // --- PROCESS PACKAGED FOOD LABEL: Gemini reads ingredients/allergen text verbatim ---
+  const processLabelImage = async (imageUri: string) => {
+    setStage('scanning');
+    setCapturedImage(imageUri);
+    setStatusText('Reading ingredient label...');
+
+    try {
+      const base64 = await FileSystem.readAsStringAsync(imageUri, { encoding: 'base64' as any });
+      setStatusText('Extracting ingredients & allergen declaration...');
+      const scan = await parseIngredientLabel(base64);
+
+      if (!scan.ingredientsText.trim() && !scan.allergenText.trim()) {
+        Alert.alert('Label unreadable', 'Could not read the ingredient list or allergen declaration. Try a clearer, well-lit photo of the label.', [
+          { text: 'Try Again', onPress: () => setStage('camera') },
+        ]);
+        return;
+      }
+
+      // Avoid collisions between multiple scans that all got the generic
+      // fallback name (riskAssessments/scannedDishes are keyed by name).
+      const productName = scan.productName === 'Scanned Product'
+        ? `Scanned Product (${new Date().toLocaleTimeString()})`
+        : scan.productName;
+
+      let macros = scan.macros;
+      let matchType: DishWithMacros['matchType'] = 'label_provided';
+      if (!macros) {
+        // Nutrition panel wasn't legible on the label — fall back to the
+        // local nutrition database the same way menu/dish scanning does,
+        // instead of silently showing all-zero macros.
+        const dbMatch = findNutrition(productName);
+        if (dbMatch) {
+          macros = { calories: dbMatch.entry.calories, protein: dbMatch.entry.protein, carbs: dbMatch.entry.carbs, fat: dbMatch.entry.fat, fiber: dbMatch.entry.fiber };
+          matchType = dbMatch.matchType;
+        } else {
+          macros = { calories: 200, protein: 8, carbs: 20, fat: 8, fiber: 3 };
+          matchType = 'ai_estimated';
+        }
+      }
+
+      const product: DishWithMacros = {
+        name: productName,
+        description: scan.ingredientsText,
+        macros,
+        matchType,
+      };
+
+      const ranked = rankDishesLocally([product], budget, profile);
+      const assessment = assessPackagedFood(product, scan.ingredientsText, scan.allergenText, profile);
+
+      setDishesWithMacros([product]);
+      setScannedDishes(ranked);
+      setRiskAssessments({ [product.name]: assessment });
+
+      navigation.navigate('Results');
+    } catch (error: any) {
+      console.error('Label scan error:', error);
+      Alert.alert('Scan Failed', error?.message || 'Unknown error', [
+        { text: 'Try Again', onPress: () => setStage('camera') },
+      ]);
+    }
+  };
+
   // --- PROCESS IMAGE: Gemini scans → local DB matches macros ---
   const processMenuImage = async (imageUri: string) => {
+    if (scanType === 'label') return processLabelImage(imageUri);
+
     setStage('scanning');
     setCapturedImage(imageUri);
     setStatusText('Reading menu with AI...');
@@ -45,7 +113,7 @@ export default function ScannerScreen({ navigation, route }: any) {
 
       // Send to Gemini to extract dish names
       setStatusText(scanType === 'menu' ? 'Reading the menu...' : 'Identifying the dish...');
-      const dishes: ParsedDish[] = await parseMenuImage(base64, scanType);
+      const dishes: ParsedDish[] = await parseMenuImage(base64, scanType === 'dish' ? 'dish' : 'menu');
 
       if (dishes.length === 0) {
         Alert.alert('No dishes found', 'Could not read the menu. Try a clearer photo or select dishes manually.');
@@ -86,6 +154,7 @@ export default function ScannerScreen({ navigation, route }: any) {
 
       setDishesWithMacros(withMacros);
       setScannedDishes(ranked);
+      setRiskAssessments(assessDishes(withMacros, profile));
 
       // Go to results
       navigation.navigate('Results');
@@ -165,6 +234,7 @@ export default function ScannerScreen({ navigation, route }: any) {
     const ranked = rankDishesLocally(withMacros, budget, profile);
     setDishesWithMacros(withMacros);
     setScannedDishes(ranked);
+    setRiskAssessments(assessDishes(withMacros, profile));
     navigation.navigate('Results');
   };
 
@@ -173,7 +243,7 @@ export default function ScannerScreen({ navigation, route }: any) {
   if (!permission.granted) {
     return (
       <View style={styles.permissionContainer}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
         <Ionicons name="camera-outline" size={64} color={Colors.textMuted} />
         <Text style={styles.permTitle}>Camera Access Needed</Text>
         <Text style={styles.permSubtext}>Scan restaurant menus to get instant macro analysis</Text>
@@ -196,7 +266,7 @@ export default function ScannerScreen({ navigation, route }: any) {
   if (stage === 'scanning') {
     return (
       <View style={styles.scanningContainer}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
         {capturedImage && (
           <Image source={{ uri: capturedImage }} style={styles.bgPreview} blurRadius={10} />
         )}
@@ -225,7 +295,7 @@ export default function ScannerScreen({ navigation, route }: any) {
   if (stage === 'manual') {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" />
+        <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
         <View style={styles.manualHeader}>
           <TouchableOpacity onPress={() => setStage('camera')} style={styles.backBtn}>
             <Ionicons name="arrow-back" size={22} color={Colors.textPrimary} />
@@ -293,7 +363,7 @@ export default function ScannerScreen({ navigation, route }: any) {
   // ---- CAMERA VIEW ----
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
       <CameraView ref={cameraRef} style={styles.camera} facing="back">
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.camBtn}>
@@ -308,12 +378,19 @@ export default function ScannerScreen({ navigation, route }: any) {
               <Ionicons name="document-text" size={14} color={scanType === 'menu' ? Colors.bg : '#fff'} />
               <Text style={[styles.toggleText, scanType === 'menu' && styles.toggleTextActive]}>Menu</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.toggleBtn, scanType === 'dish' && styles.toggleBtnActive]} 
+            <TouchableOpacity
+              style={[styles.toggleBtn, scanType === 'dish' && styles.toggleBtnActive]}
               onPress={() => setScanType('dish')}
             >
               <Ionicons name="restaurant" size={14} color={scanType === 'dish' ? Colors.bg : '#fff'} />
               <Text style={[styles.toggleText, scanType === 'dish' && styles.toggleTextActive]}>Dish</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleBtn, scanType === 'label' && styles.toggleBtnActive]}
+              onPress={() => setScanType('label')}
+            >
+              <Ionicons name="barcode" size={14} color={scanType === 'label' ? Colors.bg : '#fff'} />
+              <Text style={[styles.toggleText, scanType === 'label' && styles.toggleTextActive]}>Label</Text>
             </TouchableOpacity>
           </View>
 
@@ -328,7 +405,7 @@ export default function ScannerScreen({ navigation, route }: any) {
           <View style={[styles.corner, styles.cBR]} />
         </View>
         <Text style={styles.hint}>
-          {scanType === 'menu' ? 'Point at the menu' : 'Point at your food'} and tap capture
+          {scanType === 'menu' ? 'Point at the menu' : scanType === 'label' ? 'Point at the ingredients/allergen panel' : 'Point at your food'} and tap capture
         </Text>
         <View style={styles.bottomBar}>
           <TouchableOpacity style={styles.sideBtn} onPress={handlePickImage}>
@@ -346,7 +423,7 @@ export default function ScannerScreen({ navigation, route }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   camera: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 60, paddingHorizontal: 20 },
@@ -410,3 +487,5 @@ const styles = StyleSheet.create({
   analyzeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.accent, borderRadius: BorderRadius.lg, paddingVertical: 16 },
   analyzeBtnText: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '700' },
 });
+
+let styles = createStyles();

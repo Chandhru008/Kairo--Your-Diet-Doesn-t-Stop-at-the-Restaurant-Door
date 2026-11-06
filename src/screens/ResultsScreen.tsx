@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   StatusBar, Dimensions, Alert,
@@ -8,6 +8,7 @@ import { Colors } from '../theme/colors';
 import { Typography, BorderRadius } from '../theme/typography';
 import { useApp } from '../context/AppContext';
 import { RankedDish, Verdict } from '../types';
+import { RiskAssessment, RiskLevel, RISK_LEVEL_LABEL } from '../types/risk';
 
 const { width } = Dimensions.get('window');
 
@@ -16,6 +17,87 @@ const VERDICT_CONFIG: Record<Verdict, { label: string; emoji: string; color: str
   good: { label: 'Good Fit', emoji: '👍', color: Colors.goodFit, bg: 'rgba(100,181,246,0.1)' },
   skip: { label: 'Skip', emoji: '⛔', color: Colors.skip, bg: 'rgba(255,82,82,0.1)' },
 };
+
+const RISK_CONFIG: Record<RiskLevel, { emoji: string; color: string; bg: string }> = {
+  green: { emoji: '✅', color: Colors.topPick, bg: 'rgba(0,230,118,0.1)' },
+  yellow: { emoji: '⚠️', color: Colors.amber, bg: Colors.amberBg },
+  orange: { emoji: '🟠', color: '#FF9800', bg: 'rgba(255,152,0,0.1)' },
+  red: { emoji: '🔴', color: Colors.skip, bg: 'rgba(255,82,82,0.1)' },
+  grey: { emoji: '❔', color: Colors.textMuted, bg: Colors.bgInput },
+};
+
+function PersonalizedAnalysis({ assessment }: { assessment: RiskAssessment }) {
+  const [expanded, setExpanded] = useState(assessment.overallStatus === 'red');
+  const cfg = RISK_CONFIG[assessment.overallStatus];
+
+  return (
+    <View style={[styles.riskContainer, { borderColor: cfg.color + '40' }]}>
+      <TouchableOpacity style={styles.riskHeader} onPress={() => setExpanded(!expanded)} activeOpacity={0.7}>
+        <View style={[styles.riskBadge, { backgroundColor: cfg.bg }]}>
+          <Text style={{ fontSize: 12 }}>{cfg.emoji}</Text>
+          <Text style={[styles.riskBadgeText, { color: cfg.color }]}>PERSONALIZED ANALYSIS · {RISK_LEVEL_LABEL[assessment.overallStatus]}</Text>
+        </View>
+        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'} size={16} color={Colors.textMuted} />
+      </TouchableOpacity>
+
+      {expanded && (
+        <View style={styles.riskBody}>
+          {assessment.riskFactors.length > 0 && (
+            <View style={styles.riskSection}>
+              <Text style={styles.riskSectionTitle}>WHY?</Text>
+              {assessment.riskFactors.map((f, i) => (
+                <View key={f.id || i} style={styles.riskFactorRow}>
+                  <View style={[styles.riskDot, { backgroundColor: RISK_CONFIG[f.level].color }]} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.riskFactorFactor}>Your profile: {f.userFactor}</Text>
+                    <Text style={styles.riskFactorSummary}>{f.summary}</Text>
+                    {f.evidence.map((e, j) => (
+                      <Text key={j} style={styles.riskEvidence}>Evidence: {e.source} — "{e.evidenceText}" ({e.status.replace('_', ' ')})</Text>
+                    ))}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={styles.riskSection}>
+            <Text style={styles.riskSectionTitle}>WHAT DON'T WE KNOW?</Text>
+            {assessment.unknowns.map((u, i) => (
+              <Text key={i} style={styles.riskUnknown}>? {u}</Text>
+            ))}
+          </View>
+
+          {assessment.recommendedVerification.length > 0 && (
+            <View style={styles.riskSection}>
+              <Text style={styles.riskSectionTitle}>WHAT SHOULD I VERIFY?</Text>
+              {assessment.recommendedVerification.map((v, i) => (
+                <Text key={i} style={styles.riskListItem}>• {v}</Text>
+              ))}
+            </View>
+          )}
+
+          {assessment.possibleModifications.length > 0 && (
+            <View style={styles.riskSection}>
+              <Text style={styles.riskSectionTitle}>POSSIBLE MODIFICATIONS</Text>
+              {assessment.possibleModifications.map((m, i) => (
+                <Text key={i} style={styles.riskListItem}>• {m}</Text>
+              ))}
+            </View>
+          )}
+
+          {assessment.questionsToAsk.length > 0 && (
+            <View style={styles.riskSection}>
+              <Text style={styles.riskSectionTitle}>❓ ASK BEFORE YOU EAT</Text>
+              {assessment.questionsToAsk.map((q, i) => (
+                <Text key={i} style={styles.riskListItem}>• {q}</Text>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+}
 
 function MacroBar({ label, value, color, unit }: { label: string; value: number; color: string; unit: string }) {
   const maxWidth = 100;
@@ -31,7 +113,10 @@ function MacroBar({ label, value, color, unit }: { label: string; value: number;
   );
 }
 
-function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => void; isCheatDay: boolean }) {
+function DishCard({ dish, onLog, isCheatDay, assessment, compareMode, compareSelected, onToggleCompare }: {
+  dish: RankedDish; onLog: () => void; isCheatDay: boolean; assessment?: RiskAssessment;
+  compareMode?: boolean; compareSelected?: boolean; onToggleCompare?: () => void;
+}) {
   const verdict = VERDICT_CONFIG[dish.verdict] || VERDICT_CONFIG.good;
   const isTopPick = dish.verdict === 'top_pick';
 
@@ -42,10 +127,16 @@ function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => 
         borderColor: isCheatDay ? Colors.amberBorder : Colors.accentBorder,
         borderWidth: 1.5,
       },
+      compareSelected && { borderColor: Colors.info, borderWidth: 1.5 },
     ]}>
       {/* Header */}
       <View style={styles.dishHeader}>
         <View style={styles.dishNameRow}>
+          {compareMode && (
+            <TouchableOpacity onPress={onToggleCompare} style={[styles.compareChk, compareSelected && styles.compareChkSel]}>
+              {compareSelected && <Ionicons name="checkmark" size={14} color={Colors.bg} />}
+            </TouchableOpacity>
+          )}
           <Text style={styles.dishName}>{dish.name}</Text>
           <View style={[styles.scoreBadge, { backgroundColor: verdict.bg }]}>
             <Text style={[styles.scoreText, { color: verdict.color }]}>{dish.score}</Text>
@@ -93,13 +184,17 @@ function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => 
         </View>
       )}
 
+      {/* Personalized Risk Analysis */}
+      {assessment && <PersonalizedAnalysis assessment={assessment} />}
+
       {/* Match Type Badge */}
       <View style={styles.matchRow}>
         <View style={styles.matchBadge}>
           <Text style={styles.matchText}>
             {dish.matchType === 'exact' ? '✅ DB Match' :
              dish.matchType === 'partial' ? '🔍 Partial Match' :
-             dish.matchType === 'keyword' ? '🔑 Keyword Match' : '🤖 AI Estimated'}
+             dish.matchType === 'keyword' ? '🔑 Keyword Match' :
+             dish.matchType === 'label_provided' ? '🏷️ From Label' : '🤖 AI Estimated'}
           </Text>
         </View>
       </View>
@@ -114,10 +209,22 @@ function DishCard({ dish, onLog, isCheatDay }: { dish: RankedDish; onLog: () => 
 }
 
 export default function ResultsScreen({ navigation }: any) {
-  const { scannedDishes, profile, budget, addMeal, trackDish, restaurantName } = useApp();
+  const { scannedDishes, profile, budget, addMeal, trackDish, restaurantName, themeMode, riskAssessments } = useApp();
+  styles = createStyles();
   const isCheatDay = profile.cheatDayEnabled;
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSelection, setCompareSelection] = useState<Set<string>>(new Set());
+
+  const toggleCompareSelection = (name: string) => {
+    setCompareSelection(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name); else next.add(name);
+      return next;
+    });
+  };
 
   const handleLog = async (dish: RankedDish) => {
+    const assessment = riskAssessments[dish.name];
     const meal = {
       id: Date.now().toString() + Math.random().toString(36).substring(2, 7),
       name: dish.name,
@@ -125,6 +232,8 @@ export default function ResultsScreen({ navigation }: any) {
       timestamp: Date.now(),
       date: new Date().toISOString().split('T')[0],
       restaurantName: restaurantName || undefined,
+      riskLevel: assessment?.overallStatus,
+      riskFactorSummaries: assessment?.riskFactors.map(f => f.summary),
     };
     await addMeal(meal);
     await trackDish(dish.name, true);
@@ -138,7 +247,7 @@ export default function ResultsScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
@@ -153,6 +262,15 @@ export default function ResultsScreen({ navigation }: any) {
               {scannedDishes.length} dishes analyzed · {budget.calories} kcal remaining
             </Text>
           </View>
+          {scannedDishes.length > 1 && (
+            <TouchableOpacity
+              style={[styles.compareToggleBtn, compareMode && { backgroundColor: Colors.info, borderColor: Colors.info }]}
+              onPress={() => { setCompareMode(!compareMode); setCompareSelection(new Set()); }}
+            >
+              <Ionicons name="git-compare" size={16} color={compareMode ? Colors.bg : Colors.textSecondary} />
+              <Text style={[styles.compareToggleText, compareMode && { color: Colors.bg }]}>Compare</Text>
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Budget Summary */}
@@ -211,6 +329,10 @@ export default function ResultsScreen({ navigation }: any) {
               )}
             </View>
 
+            {riskAssessments[absoluteTopPick.name] && (
+              <PersonalizedAnalysis assessment={riskAssessments[absoluteTopPick.name]} />
+            )}
+
             <TouchableOpacity style={styles.heroLogBtn} onPress={() => handleLog(absoluteTopPick)} activeOpacity={0.8}>
               <Ionicons name="add-circle" size={20} color={Colors.bg} />
               <Text style={styles.heroLogBtnText}>Log This Meal</Text>
@@ -225,7 +347,7 @@ export default function ResultsScreen({ navigation }: any) {
               ⭐ OTHER TOP PICKS ({topPicks.length})
             </Text>
             {topPicks.map((dish, i) => (
-              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} assessment={riskAssessments[dish.name]} compareMode={compareMode} compareSelected={compareSelection.has(dish.name)} onToggleCompare={() => toggleCompareSelection(dish.name)} />
             ))}
           </>
         )}
@@ -237,7 +359,7 @@ export default function ResultsScreen({ navigation }: any) {
               👍 GOOD OPTIONS ({goodFits.length})
             </Text>
             {goodFits.map((dish, i) => (
-              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} assessment={riskAssessments[dish.name]} compareMode={compareMode} compareSelected={compareSelection.has(dish.name)} onToggleCompare={() => toggleCompareSelection(dish.name)} />
             ))}
           </>
         )}
@@ -249,9 +371,21 @@ export default function ResultsScreen({ navigation }: any) {
               ⛔ SKIP ({skips.length})
             </Text>
             {skips.map((dish, i) => (
-              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} />
+              <DishCard key={i} dish={dish} onLog={() => handleLog(dish)} isCheatDay={isCheatDay} assessment={riskAssessments[dish.name]} compareMode={compareMode} compareSelected={compareSelection.has(dish.name)} onToggleCompare={() => toggleCompareSelection(dish.name)} />
             ))}
           </>
+        )}
+
+        {/* Compare CTA */}
+        {compareMode && compareSelection.size >= 2 && (
+          <TouchableOpacity
+            style={styles.compareCta}
+            onPress={() => navigation.navigate('Compare', { dishNames: Array.from(compareSelection) })}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="git-compare" size={20} color={Colors.bg} />
+            <Text style={styles.compareCtaText}>Compare {compareSelection.size} dishes</Text>
+          </TouchableOpacity>
         )}
 
         {/* Chat CTA */}
@@ -276,7 +410,7 @@ export default function ResultsScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   scrollContent: { paddingHorizontal: 20, paddingTop: 60 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 16, gap: 12 },
@@ -380,4 +514,30 @@ const styles = StyleSheet.create({
   warningTitle: { ...Typography.caption, color: Colors.skip, fontWeight: '700', marginBottom: 6 },
   warningItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 4 },
   warningText: { ...Typography.caption, color: Colors.textSecondary, flex: 1 },
+
+  // Personalized Risk Analysis
+  riskContainer: { borderWidth: 1, borderRadius: BorderRadius.md, marginBottom: 10, overflow: 'hidden' },
+  riskHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 10 },
+  riskBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: BorderRadius.full, flexShrink: 1 },
+  riskBadgeText: { ...Typography.caption, fontWeight: '700' },
+  riskBody: { paddingHorizontal: 12, paddingBottom: 12, gap: 10 },
+  riskSection: { gap: 4 },
+  riskSectionTitle: { ...Typography.caption, color: Colors.textMuted, fontWeight: '700', letterSpacing: 0.5 },
+  riskFactorRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  riskDot: { width: 8, height: 8, borderRadius: 4, marginTop: 5 },
+  riskFactorFactor: { ...Typography.caption, color: Colors.textPrimary, fontWeight: '700' },
+  riskFactorSummary: { ...Typography.bodySm, color: Colors.textSecondary, marginTop: 2 },
+  riskEvidence: { ...Typography.caption, color: Colors.textMuted, marginTop: 2, fontStyle: 'italic' },
+  riskUnknown: { ...Typography.bodySm, color: Colors.textSecondary },
+  riskListItem: { ...Typography.bodySm, color: Colors.textSecondary },
+
+  // Menu comparison
+  compareToggleBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 8, borderRadius: BorderRadius.full, backgroundColor: Colors.bgCard, borderWidth: 1, borderColor: Colors.border },
+  compareToggleText: { ...Typography.caption, color: Colors.textSecondary, fontWeight: '600' },
+  compareChk: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: Colors.textMuted, alignItems: 'center', justifyContent: 'center' },
+  compareChkSel: { backgroundColor: Colors.info, borderColor: Colors.info },
+  compareCta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: Colors.info, borderRadius: BorderRadius.lg, paddingVertical: 14, marginTop: 12 },
+  compareCtaText: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '700' },
 });
+
+let styles = createStyles();

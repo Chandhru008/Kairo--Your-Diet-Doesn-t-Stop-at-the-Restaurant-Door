@@ -3,6 +3,7 @@ node_modules/
 dist/
 npm-debug.*
 *.jks
+android/app/debug.keystore
 *.p8
 *.p12
 *.key

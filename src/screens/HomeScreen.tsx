@@ -1,12 +1,74 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  StatusBar, Dimensions, Alert,
+  StatusBar, Dimensions, Alert, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../theme/colors';
 import { Typography, Spacing, BorderRadius } from '../theme/typography';
 import { useApp } from '../context/AppContext';
+import { UserProfile } from '../types';
+import { getDietRecommendation, profileToDietQuery, explainDietRecommendation } from '../services/dietRecommendationService';
+import { DietRecommendationResult } from '../data/dietRecommendationDB';
+
+function profileHash(p: UserProfile): string {
+  return [p.age, p.gender, p.weightKg, p.heightCm, p.activityLevel, [...p.conditions].sort().join(','), p.allergies.map(a => a.allergen).sort().join(',')].join('|');
+}
+
+const REC_LABEL: Record<string, string> = { Balanced: 'Balanced Diet', Low_Carb: 'Low-Carb Focus', Low_Sodium: 'Low-Sodium Focus' };
+
+function DietRecommendationCard({ profile }: { profile: UserProfile }) {
+  const [result, setResult] = useState<DietRecommendationResult | null>(null);
+  const [explanation, setExplanation] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [hash, setHash] = useState('');
+
+  const compute = async (force = false) => {
+    const currentHash = profileHash(profile);
+    if (!force && currentHash === hash) return;
+    setHash(currentHash);
+    const query = profileToDietQuery(profile);
+    const rec = getDietRecommendation(profile);
+    setResult(rec);
+    setExplanation('');
+    setLoading(true);
+    try {
+      const text = await explainDietRecommendation(profile, query, rec);
+      setExplanation(text);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { compute(); }, [profile.age, profile.gender, profile.weightKg, profile.heightCm, profile.activityLevel, profile.conditions.join(','), profile.allergies.map(a => a.allergen).join(',')]);
+
+  if (!result) return null;
+
+  return (
+    <View style={styles.dietRecCard}>
+      <View style={styles.dietRecHeader}>
+        <View style={styles.dietRecIconWrap}>
+          <Ionicons name="nutrition" size={18} color={Colors.accent} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.dietRecTitle}>{REC_LABEL[result.recommendation] || result.recommendation}</Text>
+          <Text style={styles.dietRecSubtitle}>Based on {result.matchCount} similar reference profiles · {Math.round(result.confidence * 100)}% agreement</Text>
+        </View>
+        <TouchableOpacity onPress={() => compute(true)} style={styles.dietRecRefreshBtn}>
+          <Ionicons name="refresh" size={16} color={Colors.textMuted} />
+        </TouchableOpacity>
+      </View>
+      {loading ? (
+        <View style={styles.dietRecLoadingRow}>
+          <ActivityIndicator size="small" color={Colors.accent} />
+          <Text style={styles.dietRecLoadingText}>Generating explanation...</Text>
+        </View>
+      ) : (
+        <Text style={styles.dietRecExplanation}>{explanation}</Text>
+      )}
+    </View>
+  );
+}
 
 const { width } = Dimensions.get('window');
 
@@ -34,15 +96,27 @@ function MacroCard({
   );
 }
 
+const QUICK_ADD_ML = [250, 500];
+
 export default function HomeScreen({ navigation }: any) {
-  const { profile, todayMeals, budget, refreshMeals, deleteMeal } = useApp();
+  const {
+    profile, todayMeals, budget, refreshMeals, deleteMeal, themeMode, toggleTheme,
+    riskAssessments, hydrationToday, refreshHydration, logWater,
+  } = useApp();
+  styles = createStyles();
   const isCheatDay = profile.cheatDayEnabled;
   const accentColor = isCheatDay ? Colors.amber : Colors.accent;
 
   useEffect(() => {
-    const unsub = navigation.addListener('focus', () => { refreshMeals(); });
+    const unsub = navigation.addListener('focus', () => { refreshMeals(); refreshHydration(); });
     return unsub;
-  }, [navigation, refreshMeals]);
+  }, [navigation, refreshMeals, refreshHydration]);
+
+  const assessmentList = Object.values(riskAssessments);
+  const allergyAlerts = assessmentList.filter(a => a.allergens.length > 0).length;
+  const dietaryAlerts = assessmentList.filter(a => a.riskFactors.some(f => f.category === 'dietary_preference')).length;
+  const verificationNeeded = assessmentList.filter(a => a.recommendedVerification.length > 0).length;
+  const hydrationPct = Math.min(1, hydrationToday / Math.max(1, profile.hydrationTargetMl));
 
   const handleDeleteMeal = (id: string, name: string) => {
     Alert.alert('Remove Meal', `Remove ${name} from today's log?`, [
@@ -53,7 +127,7 @@ export default function HomeScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bg} />
+      <StatusBar barStyle={themeMode === 'light' ? 'dark-content' : 'light-content'} backgroundColor={Colors.bg} />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
@@ -66,7 +140,15 @@ export default function HomeScreen({ navigation }: any) {
             </Text>
           </View>
           
-          <View style={{ flexDirection: 'row', gap: 12 }}>
+          <View style={{ flexDirection: 'row', gap: 12, alignItems: 'center' }}>
+            <TouchableOpacity
+              style={styles.themeToggle}
+              onPress={toggleTheme}
+              activeOpacity={0.8}
+            >
+              <Ionicons name={themeMode === 'dark' ? 'moon-outline' : 'sunny-outline'} size={18} color={Colors.textPrimary} />
+              <Text style={styles.themeToggleText}>{themeMode === 'dark' ? 'Dark' : 'Light'}</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.headerIconBtn}
               onPress={() => navigation.navigate('History')}
@@ -119,6 +201,18 @@ export default function HomeScreen({ navigation }: any) {
           </TouchableOpacity>
         </View>
 
+        {/* Cook at Home */}
+        <TouchableOpacity style={styles.cookAtHomeCard} onPress={() => navigation.navigate('CookAtHome')} activeOpacity={0.8}>
+          <View style={styles.cookAtHomeIconWrap}>
+            <Ionicons name="flame" size={22} color={Colors.amber} />
+          </View>
+          <View style={{ flex: 1, marginLeft: 12 }}>
+            <Text style={styles.cookAtHomeTitle}>Cook at Home</Text>
+            <Text style={styles.cookAtHomeSub}>Search recipes — flagged ingredients get an alternative or a risk tag</Text>
+          </View>
+          <Ionicons name="arrow-forward" size={20} color={Colors.textMuted} />
+        </TouchableOpacity>
+
         {/* Macro Cards */}
         <View style={styles.macroRow}>
           <MacroCard
@@ -153,6 +247,61 @@ export default function HomeScreen({ navigation }: any) {
             icon="leaf"
             unit="g"
           />
+        </View>
+
+        {/* Personalized Diet Recommendation — deterministic lookup, Groq only explains */}
+        <DietRecommendationCard profile={profile} />
+
+        {/* Dietary & Allergy Alerts — from the most recent scan's risk assessments */}
+        {assessmentList.length > 0 && (allergyAlerts > 0 || dietaryAlerts > 0 || verificationNeeded > 0) && (
+          <View style={styles.alertsSection}>
+            <Text style={styles.sectionLabel}>FROM YOUR LAST SCAN</Text>
+            <View style={styles.alertsRow}>
+              {allergyAlerts > 0 && (
+                <View style={[styles.alertChip, { borderColor: `${Colors.skip}40` }]}>
+                  <Ionicons name="alert-circle" size={16} color={Colors.skip} />
+                  <Text style={[styles.alertChipValue, { color: Colors.skip }]}>{allergyAlerts}</Text>
+                  <Text style={styles.alertChipLabel}>Allergy alert{allergyAlerts !== 1 ? 's' : ''}</Text>
+                </View>
+              )}
+              {dietaryAlerts > 0 && (
+                <View style={[styles.alertChip, { borderColor: `${Colors.amber}40` }]}>
+                  <Ionicons name="leaf" size={16} color={Colors.amber} />
+                  <Text style={[styles.alertChipValue, { color: Colors.amber }]}>{dietaryAlerts}</Text>
+                  <Text style={styles.alertChipLabel}>Dietary alert{dietaryAlerts !== 1 ? 's' : ''}</Text>
+                </View>
+              )}
+              {verificationNeeded > 0 && (
+                <View style={[styles.alertChip, { borderColor: `${Colors.info}40` }]}>
+                  <Ionicons name="help-circle" size={16} color={Colors.info} />
+                  <Text style={[styles.alertChipValue, { color: Colors.info }]}>{verificationNeeded}</Text>
+                  <Text style={styles.alertChipLabel}>Need verification</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* Hydration */}
+        <View style={styles.hydrationCard}>
+          <View style={styles.hydrationHeader}>
+            <View style={styles.hydrationTitleRow}>
+              <Ionicons name="water" size={18} color={Colors.info} />
+              <Text style={styles.hydrationTitle}>Hydration</Text>
+            </View>
+            <Text style={styles.hydrationValue}>{(hydrationToday / 1000).toFixed(2)}L / {(profile.hydrationTargetMl / 1000).toFixed(1)}L</Text>
+          </View>
+          <View style={styles.progressBg}>
+            <View style={[styles.progressFill, { width: `${hydrationPct * 100}%`, backgroundColor: Colors.info }]} />
+          </View>
+          <View style={styles.hydrationQuickAddRow}>
+            {QUICK_ADD_ML.map(ml => (
+              <TouchableOpacity key={ml} style={styles.hydrationQuickAddBtn} onPress={() => logWater(ml)} activeOpacity={0.7}>
+                <Ionicons name="add" size={14} color={Colors.info} />
+                <Text style={styles.hydrationQuickAddText}>{ml}ml</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         {/* Meals Logged Today */}
@@ -216,7 +365,7 @@ export default function HomeScreen({ navigation }: any) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.bg },
   scrollContent: { paddingHorizontal: 20, paddingTop: 60 },
   header: {
@@ -227,6 +376,18 @@ const styles = StyleSheet.create({
   },
   greeting: { ...Typography.bodySm, color: Colors.textSecondary, marginBottom: 4 },
   title: { ...Typography.h2, color: Colors.textPrimary },
+  themeToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.bgCard,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  themeToggleText: { ...Typography.caption, color: Colors.textPrimary, fontWeight: '600' },
   headerIconBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: Colors.bgCard, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.border },
   profileBtn: { padding: 4 },
   cheatBanner: {
@@ -248,6 +409,10 @@ const styles = StyleSheet.create({
   actionIconWrap: { padding: 10, borderRadius: BorderRadius.md, backgroundColor: 'rgba(255,255,255,0.2)', marginBottom: 12 },
   actionBtnTitle: { ...Typography.bodyMedium, color: Colors.bg, fontWeight: '700', marginBottom: 2 },
   actionBtnSub: { ...Typography.caption, color: Colors.textMuted },
+  cookAtHomeCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.amberBorder, padding: 16, marginBottom: 20 },
+  cookAtHomeIconWrap: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.amberBg, alignItems: 'center', justifyContent: 'center' },
+  cookAtHomeTitle: { ...Typography.bodyMedium, color: Colors.textPrimary },
+  cookAtHomeSub: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
   macroRow: { flexDirection: 'row', gap: 10, marginBottom: 8, flexWrap: 'wrap' },
   macroCard: {
     width: '48%',
@@ -301,4 +466,30 @@ const styles = StyleSheet.create({
   macroDot: { color: Colors.textMuted, marginHorizontal: 4, fontSize: 10 },
   mealRestaurant: { ...Typography.caption, color: Colors.textMuted, marginTop: 4 },
   deleteBtn: { padding: 4 },
+
+  dietRecCard: { marginTop: 20, backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.accentBorder, padding: 16 },
+  dietRecHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dietRecIconWrap: { width: 36, height: 36, borderRadius: 18, backgroundColor: Colors.accentBg, alignItems: 'center', justifyContent: 'center' },
+  dietRecTitle: { ...Typography.bodyMedium, color: Colors.textPrimary, fontWeight: '700' },
+  dietRecSubtitle: { ...Typography.caption, color: Colors.textMuted, marginTop: 2 },
+  dietRecRefreshBtn: { padding: 6 },
+  dietRecLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  dietRecLoadingText: { ...Typography.caption, color: Colors.textMuted },
+  dietRecExplanation: { ...Typography.bodySm, color: Colors.textSecondary, marginTop: 12, lineHeight: 20 },
+  alertsSection: { marginTop: 24 },
+  alertsRow: { flexDirection: 'row', gap: 10, flexWrap: 'wrap' },
+  alertChip: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.bgCard, borderRadius: BorderRadius.full, borderWidth: 1, paddingHorizontal: 12, paddingVertical: 8 },
+  alertChipValue: { ...Typography.bodyMedium, fontWeight: '700' },
+  alertChipLabel: { ...Typography.caption, color: Colors.textSecondary },
+
+  hydrationCard: { marginTop: 24, backgroundColor: Colors.bgCard, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: Colors.border, padding: 16 },
+  hydrationHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  hydrationTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  hydrationTitle: { ...Typography.bodyMedium, color: Colors.textPrimary },
+  hydrationValue: { ...Typography.bodySm, color: Colors.info, fontWeight: '700' },
+  hydrationQuickAddRow: { flexDirection: 'row', gap: 8, marginTop: 12 },
+  hydrationQuickAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: `${Colors.info}15`, borderRadius: BorderRadius.full, borderWidth: 1, borderColor: `${Colors.info}30`, paddingHorizontal: 12, paddingVertical: 6 },
+  hydrationQuickAddText: { ...Typography.caption, color: Colors.info, fontWeight: '700' },
 });
+
+let styles = createStyles();
